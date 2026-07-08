@@ -1,60 +1,22 @@
 import { fetchZohoJson, ZOHO_CRM_BASE } from "@/lib/zoho";
-import { DEFAULT_VISIBLE_API_NAMES } from "@/lib/contractColumns";
+import {
+  expandApiNamesForZohoFetch,
+  getContractFieldDisplayValue,
+  mergeLegacyFieldValues,
+} from "@/lib/contractColumns";
+import { mapZohoRecord, parseVisibleFields } from "@/lib/zohoContractMap";
 
-function formatFieldValue(value) {
-  if (value == null || value === "") return "";
-
-  if (typeof value === "boolean") return value ? "Yes" : "No";
-
-  if (typeof value === "object" && !Array.isArray(value)) {
-    if (value.name != null && String(value.name) !== "") return String(value.name);
-    if (value.id != null) return String(value.id);
-    return "";
-  }
-
-  if (Array.isArray(value)) {
-    return value
-      .map((v) => formatFieldValue(v))
-      .filter(Boolean)
-      .join(", ");
-  }
-
-  const str = String(value);
-  if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
-    const date = new Date(str);
-    if (!Number.isNaN(date.getTime())) {
-      return date.toISOString().slice(0, 10);
-    }
-  }
-
-  return str;
-}
-
-function mapZohoRecord(row, visibleApiNames) {
+function mapListContract(row, visibleApiNames) {
+  const fetchNames = expandApiNamesForZohoFetch(visibleApiNames);
+  const merged = mergeLegacyFieldValues(mapZohoRecord(row, fetchNames).fields);
   const fields = {};
   for (const apiName of visibleApiNames) {
-    fields[apiName] = formatFieldValue(row[apiName]);
+    fields[apiName] = getContractFieldDisplayValue(merged, apiName);
   }
-
   return {
     id: row.id != null ? String(row.id) : "",
     fields,
   };
-}
-
-function parseVisibleFields(searchParams) {
-  const raw = searchParams.get("fields");
-  if (!raw || !raw.trim()) {
-    return [...DEFAULT_VISIBLE_API_NAMES];
-  }
-
-  const names = raw
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .filter((name) => name !== "id");
-
-  return names.length > 0 ? names : [...DEFAULT_VISIBLE_API_NAMES];
 }
 
 export async function GET(request) {
@@ -63,7 +25,8 @@ export async function GET(request) {
   const perPage = 100;
 
   const visibleApiNames = parseVisibleFields(searchParams);
-  const zohoFields = ["id", ...visibleApiNames].join(",");
+  const fetchFieldNames = expandApiNamesForZohoFetch(visibleApiNames);
+  const zohoFields = ["id", ...fetchFieldNames].join(",");
   const fieldsQuery = encodeURIComponent(zohoFields);
 
   const listUrl = `${ZOHO_CRM_BASE}/Contracts?fields=${fieldsQuery}&per_page=${perPage}&page=${page}`;
@@ -96,7 +59,7 @@ export async function GET(request) {
     );
   }
 
-  const contracts = (body.data ?? []).map((row) => mapZohoRecord(row, visibleApiNames));
+  const contracts = (body.data ?? []).map((row) => mapListContract(row, visibleApiNames));
 
   let totalCount = contracts.length;
   if (countResult.res.ok && typeof countResult.body.count === "number") {

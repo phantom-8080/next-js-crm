@@ -13,6 +13,11 @@ export function getZohoModuleFieldsUrl(module = ZOHO_CRM_MODULE_CONTRACTS) {
   return `${ZOHO_CRM_V8_BASE}/settings/fields?module=${encodeURIComponent(module)}`;
 }
 
+/** Page layout sections (record detail grouping) — CRM v8 */
+export function getZohoModuleLayoutsUrl(module = ZOHO_CRM_MODULE_CONTRACTS) {
+  return `${ZOHO_CRM_V8_BASE}/settings/layouts?module=${encodeURIComponent(module)}`;
+}
+
 async function fetchWithToken(url, token) {
   const res = await fetch(url, {
     method: "GET",

@@ -8,7 +8,7 @@ export default function ContractsPage() {
   const [filtersOpen, setFiltersOpen] = useState(false);
 
   return (
-    <div className="box-border h-[100dvh] overflow-hidden bg-black p-2 sm:p-3">
+    <div className="flex h-[100dvh] min-h-0 flex-col overflow-hidden bg-crm-canvas p-2 sm:p-3">
       <div className="relative flex h-full min-h-0 gap-2 sm:gap-3 md:flex-row">
         <SideBar open={filtersOpen} onClose={() => setFiltersOpen(false)} />
         <ContractsTable

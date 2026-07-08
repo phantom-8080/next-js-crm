@@ -4,6 +4,7 @@ import { useCallback, useSyncExternalStore } from "react";
 import {
   DEFAULT_VISIBLE_API_NAMES,
   loadVisibleApiNames,
+  normalizeVisibleApiNames,
   saveVisibleApiNames,
 } from "@/lib/contractColumns";
 
@@ -42,8 +43,9 @@ export function useContractVisibleColumns() {
   );
 
   const setVisibleApiNames = useCallback((apiNames: string[]) => {
-    saveVisibleApiNames(apiNames);
-    clientSnapshot = [...apiNames];
+    const normalized = normalizeVisibleApiNames(apiNames);
+    saveVisibleApiNames(normalized);
+    clientSnapshot = [...normalized];
     notifyVisibleColumnsChanged(false);
   }, []);
 

@@ -1,36 +1,15 @@
-import { fetchZohoJson, getZohoModuleFieldsUrl } from "@/lib/zoho";
+import { getZohoModuleFieldsUrl } from "@/lib/zoho";
 import { FALLBACK_FIELD_CATALOG } from "@/lib/contractColumns";
-
-const HIDDEN_API_NAMES = new Set([
-  "$approval_state",
-  "$approved",
-  "$editable",
-  "$field_states",
-  "$process_flow",
-  "$review_process",
-  "$review",
-  "$state",
-  "$status",
-  "$zia_owner_assignment",
-  "$orchestration",
-  "$in_merge",
-  "$pathfinder",
-  "$followed",
-  "$followers",
-]);
-
-function mapZohoField(field) {
-  return {
-    apiName: field.api_name,
-    label: field.field_label ?? field.api_name,
-    dataType: field.data_type ?? "text",
-    visible: field.visible !== false,
-  };
-}
+import { buildFallbackRecordSections } from "@/lib/contractRecordLayout";
+import { loadContractsFieldCatalog } from "@/lib/contractModuleFields";
+import { loadContractsRecordSections } from "@/lib/loadContractRecordLayout";
 
 function fallbackPayload(warning) {
+  const fields = FALLBACK_FIELD_CATALOG.map((f) => ({ ...f, visible: true }));
   return {
-    fields: FALLBACK_FIELD_CATALOG.map((f) => ({ ...f, visible: true })),
+    fields,
+    sections: buildFallbackRecordSections(fields),
+    sectionSource: "fallback",
     source: "fallback",
     warning,
     count: FALLBACK_FIELD_CATALOG.length,
@@ -41,30 +20,26 @@ export async function GET() {
   const zohoUrl = getZohoModuleFieldsUrl("Contracts");
 
   try {
-    const { res, body } = await fetchZohoJson(zohoUrl);
+    const { fields, source } = await loadContractsFieldCatalog();
+    const { sections, source: sectionSource } = await loadContractsRecordSections(fields);
 
-    if (res.ok && Array.isArray(body.fields)) {
-      const fields = body.fields
-        .filter((f) => f.api_name && !HIDDEN_API_NAMES.has(f.api_name))
-        .filter((f) => f.api_name !== "id")
-        .map(mapZohoField)
-        .sort((a, b) => a.label.localeCompare(b.label));
-
+    if (source === "zoho") {
       return Response.json({
         fields,
+        sections,
+        sectionSource,
         source: "zoho",
         zohoUrl,
         count: fields.length,
       });
     }
 
-    const zohoMessage =
-      body.message ?? body.code ?? `Zoho returned HTTP ${res.status}`;
-
     return Response.json({
       ...fallbackPayload(
-        `Could not load fields from Zoho (${zohoMessage}). Add OAuth scope ZohoCRM.settings.fields.READ (or ZohoCRM.settings.ALL), generate a new token, and update credentials in lib/zoho-oauth.js. Showing a short fallback list.`,
+        "Could not load fields from Zoho. Add OAuth scope ZohoCRM.settings.fields.READ (or ZohoCRM.settings.ALL), generate a new token, and update credentials in lib/zoho-oauth.js. Showing a short fallback list.",
       ),
+      sections: sections ?? null,
+      sectionSource,
       zohoUrl,
     });
   } catch (err) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Menu, Settings2 } from "lucide-react";
 import {
   Table,
@@ -11,7 +11,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ContractsCardsLoader, ContractsTableLoader } from "@/components/ContractsTableLoader";
+import { InlineLoadingShimmer, PaginationLoadingShimmer } from "@/components/LoadingShimmer";
 import { ContractColumnsSettings } from "@/components/ContractColumnsSettings";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
 import { useContractVisibleColumns } from "@/hooks/useContractVisibleColumns";
 import { cn } from "@/lib/utils";
@@ -21,8 +23,16 @@ import {
   type CrmFieldMeta,
   FALLBACK_FIELD_CATALOG,
   formatCellForDisplay,
+  getContractFieldDisplayValue,
+  isDateLikeField,
   isStatusField,
+  normalizeContractFieldApiName,
+  normalizeVisibleApiNames,
 } from "@/lib/contractColumns";
+
+function openContractRecord(recordId: string) {
+  window.open(`/contracts/${recordId}`, "_blank", "noopener,noreferrer");
+}
 
 type ContractStatus = "Active" | "Closed";
 
@@ -35,10 +45,8 @@ function StatusBadge({ status }: { status: string }) {
   return (
     <span
       className={cn(
-        "inline-flex min-w-[72px] justify-center rounded-full px-2.5 py-0.5 text-xs font-medium",
-        normalized === "Active" ?
-          "bg-emerald-500/20 text-emerald-400 ring-1 ring-emerald-500/40"
-        : "bg-violet-500/20 text-violet-300 ring-1 ring-violet-500/40",
+        "crm-status-badge",
+        normalized === "Active" ? "crm-status-active" : "crm-status-closed",
       )}
     >
       {normalized}
@@ -46,35 +54,83 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function LinkCell({ children }: { children: string }) {
-  if (!children) return <span className="text-zinc-500">—</span>;
+function isLongTextColumn(apiName: string) {
   return (
-    <button
-      type="button"
-      className="max-w-[240px] truncate text-left text-sm text-blue-400 hover:text-blue-300 hover:underline"
-    >
-      {children}
-    </button>
+    apiName === "Vendor" ||
+    apiName === "Company_Name" ||
+    apiName === "Name" ||
+    apiName === "Site"
   );
 }
 
-function CellContent({ apiName, value }: { apiName: string; value: string }) {
+function TruncateWrap({
+  title,
+  children,
+}: {
+  title?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
+      title={title}
+    >
+      {children}
+    </div>
+  );
+}
+
+function CellContent({
+  apiName,
+  value,
+}: {
+  apiName: string;
+  value: string;
+}) {
   if (isStatusField(apiName)) {
     return <StatusBadge status={value || "Active"} />;
   }
-  if (apiName === "Vendor" || apiName === "Company_Name" || apiName === "Name") {
-    return <LinkCell>{value}</LinkCell>;
+  if (apiName === "Vendor" || apiName === "Company_Name" || apiName === "Name" || isLongTextColumn(apiName)) {
+    const display = value || "—";
+    return (
+      <TruncateWrap title={value || undefined}>
+        <span className="text-crm-text">{display}</span>
+      </TruncateWrap>
+    );
   }
-  return <span className="text-zinc-300">{value || "—"}</span>;
+  return (
+    <span className={cn("text-crm-text", value && "tabular-nums")}>{value || "—"}</span>
+  );
 }
 
-const th =
-  "sticky top-0 z-10 bg-[#26262d] px-3 py-4 text-xs font-semibold uppercase tracking-wide text-zinc-300 shadow-[inset_0_-1px_0_0_rgb(63_63_70)]";
-const thFirst =
-  "sticky top-0 z-10 bg-[#26262d] pl-6 pr-3 py-4 text-xs font-semibold uppercase tracking-wide text-zinc-300 shadow-[inset_0_-1px_0_0_rgb(63_63_70)]";
-const td = "px-3 py-4 max-w-[280px]";
-const tdFirst = "pl-6 pr-3 py-4 max-w-[280px]";
-const tdMuted = "px-3 py-4 text-zinc-300 max-w-[280px]";
+function getColumnWidthPx(col: { apiName: string; dataType?: string }) {
+  if (isStatusField(col.apiName)) return 128;
+  if (isLongTextColumn(col.apiName)) return 220;
+  if (isDateLikeField(col.apiName, col.dataType)) return 132;
+  return 168;
+}
+
+function columnSizeStyle(col: { apiName: string }): CSSProperties {
+  const width = getColumnWidthPx(col);
+  return { width, minWidth: width, maxWidth: width };
+}
+
+function getColumnCellClass(
+  col: { apiName: string },
+  index: number,
+  variant: "head" | "body",
+) {
+  const isFirst = index === 0;
+
+  if (variant === "head") {
+    return cn(
+      "column-heading overflow-hidden border-b border-crm-border bg-crm-table-head py-3",
+      isFirst ? "pl-6 pr-3" : "px-3",
+    );
+  }
+
+  return cn("overflow-hidden px-3 py-4 text-crm-text", isFirst && "pl-6 pr-3");
+}
 
 const PAGE_SIZE = 100;
 
@@ -90,16 +146,36 @@ function ContractCard({
   row: ContractRecord;
   columns: { apiName: string; label: string; dataType: string }[];
 }) {
+  const title =
+    row.fields.Name?.trim() ||
+    row.fields.Company_Name?.trim() ||
+    row.fields.Vendor?.trim() ||
+    `Contract ${row.id}`;
+
   return (
-    <article className="rounded-lg border border-zinc-800 bg-zinc-900/25 p-3">
+    <article
+      role="link"
+      tabIndex={0}
+      title={title}
+      onClick={() => openContractRecord(row.id)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          openContractRecord(row.id);
+        }
+      }}
+      className="crm-row-hover cursor-pointer rounded-lg border border-crm-border bg-crm-panel p-3 transition hover:border-zinc-400 dark:hover:border-zinc-600"
+    >
+      <p className="mb-3 truncate text-sm font-medium text-crm-text">{title}</p>
       <dl className="space-y-2.5 text-sm">
         {columns.map((col) => {
-          const value = row.fields[col.apiName] ?? "";
+          const value = formatCellForDisplay(
+            getContractFieldDisplayValue(row.fields, col.apiName),
+            col.dataType,
+          );
           return (
             <div key={col.apiName}>
-              <dt className="text-xs font-medium uppercase tracking-wide text-zinc-500">
-                {col.label}
-              </dt>
+              <dt className="column-heading">{col.label}</dt>
               <dd className="mt-0.5">
                 <CellContent apiName={col.apiName} value={value} />
               </dd>
@@ -129,9 +205,18 @@ export default function ContractsTable({
     setFieldCatalog(fields);
   }, []);
 
+  const columnsToShow = useMemo(
+    () => normalizeVisibleApiNames(visibleApiNames),
+    [visibleApiNames],
+  );
+
   const columnMeta = useMemo(() => {
-    const byApi = new Map(fieldCatalog.map((f) => [f.apiName, f]));
-    return visibleApiNames.map((apiName: string) => {
+    const byApi = new Map<string, CrmFieldMeta>();
+    for (const field of fieldCatalog) {
+      byApi.set(field.apiName, field);
+      byApi.set(normalizeContractFieldApiName(field.apiName), field);
+    }
+    return columnsToShow.map((apiName: string) => {
       const meta = byApi.get(apiName);
       return {
         apiName,
@@ -139,11 +224,11 @@ export default function ContractsTable({
         dataType: meta?.dataType ?? "text",
       };
     });
-  }, [fieldCatalog, visibleApiNames]);
+  }, [fieldCatalog, columnsToShow]);
 
   const fieldsParam = useMemo(
-    () => encodeURIComponent(buildFieldsQueryParam(visibleApiNames)),
-    [visibleApiNames],
+    () => encodeURIComponent(buildFieldsQueryParam(columnsToShow)),
+    [columnsToShow],
   );
 
   useEffect(() => {
@@ -210,6 +295,62 @@ export default function ContractsTable({
 
   const colCount = Math.max(1, columnMeta.length);
 
+  const tableMinWidthPx = useMemo(
+    () =>
+      Math.max(
+        640,
+        columnMeta.reduce((sum, col) => sum + getColumnWidthPx(col), 0),
+      ),
+    [columnMeta],
+  );
+
+  const tableWidthStyle = useMemo(
+    (): CSSProperties => ({
+      width: tableMinWidthPx,
+      minWidth: tableMinWidthPx,
+    }),
+    [tableMinWidthPx],
+  );
+
+  const headerScrollRef = useRef<HTMLDivElement>(null);
+  const bodyScrollRef = useRef<HTMLDivElement>(null);
+  const scrollSyncLock = useRef(false);
+
+  const syncHorizontalScroll = useCallback((source: "header" | "body") => {
+    if (scrollSyncLock.current) return;
+    const header = headerScrollRef.current;
+    const body = bodyScrollRef.current;
+    if (!header || !body) return;
+
+    scrollSyncLock.current = true;
+    if (source === "body") {
+      header.scrollLeft = body.scrollLeft;
+    } else {
+      body.scrollLeft = header.scrollLeft;
+    }
+    requestAnimationFrame(() => {
+      scrollSyncLock.current = false;
+    });
+  }, []);
+
+  function renderTableHeadRow() {
+    return (
+      <TableRow className="border-crm-border hover:bg-transparent">
+        {columnMeta.map(
+          (col: { apiName: string; label: string; dataType: string }, i: number) => (
+            <TableHead
+              key={col.apiName}
+              className={getColumnCellClass(col, i, "head")}
+              style={columnSizeStyle(col)}
+            >
+              <span className="block truncate">{col.label}</span>
+            </TableHead>
+          ),
+        )}
+      </TableRow>
+    );
+  }
+
   return (
     <>
       <ContractColumnsSettings
@@ -220,15 +361,15 @@ export default function ContractsTable({
         onFieldsLoaded={handleFieldsLoaded}
       />
 
-      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-md border border-zinc-700 bg-[#1b1b20]">
-        <div className="flex shrink-0 border-b border-zinc-700/80 px-3 py-3 sm:px-6">
+      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-md border border-crm-border bg-crm-panel">
+        <div className="relative z-20 shrink-0 border-b border-crm-border bg-crm-panel px-3 py-3 sm:px-6">
           <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
             {onOpenFilters ?
               <Button
                 type="button"
                 variant="outline"
                 size="icon"
-                className="inline-flex size-10 shrink-0 cursor-pointer border-zinc-600 bg-zinc-900/80 text-zinc-100 hover:bg-zinc-800 max-md:inline-flex md:hidden"
+                className="crm-toolbar-btn inline-flex size-10 max-md:inline-flex md:hidden"
                 onClick={onOpenFilters}
                 aria-controls="contracts-filters"
                 aria-expanded={filtersOpen}
@@ -238,22 +379,23 @@ export default function ContractsTable({
               </Button>
             : null}
             <div className="min-w-0 flex flex-1 flex-wrap items-baseline gap-x-2 gap-y-1 sm:gap-x-3">
-              <h1 className="text-base font-semibold tracking-tight text-zinc-100">Contracts</h1>
-              <span className="text-sm text-zinc-400">
+              <h1 className="page-heading truncate text-base sm:text-lg">Contracts</h1>
+              <span className="text-sm text-crm-text-muted">
                 {loading ?
-                  "Loading…"
+                  <InlineLoadingShimmer />
                 : <>
-                    <span className="font-medium tabular-nums text-zinc-200">{totalLabel}</span>
+                    <span className="font-medium tabular-nums text-crm-text">{totalLabel}</span>
                     {" total in CRM"}
                   </>
                 }
               </span>
             </div>
+            <ThemeToggle className="crm-toolbar-btn size-10" />
             <Button
               type="button"
               variant="outline"
               size="icon"
-              className="size-10 shrink-0 cursor-pointer border-zinc-600 bg-zinc-900/80 text-zinc-100 hover:bg-zinc-800"
+              className="crm-toolbar-btn size-10"
               onClick={() => setColumnsOpen(true)}
               aria-label="Manage table columns"
             >
@@ -266,114 +408,131 @@ export default function ContractsTable({
             {error}
           </div>
         : null}
-        <div className="min-h-0 flex-1 overflow-auto overscroll-contain">
+        <div className="relative z-0 flex min-h-0 flex-1 flex-col">
           {loading ?
             <>
               <ContractsCardsLoader />
-              <div className="hidden min-w-0 md:block">
-                <Table className="min-w-[640px]">
-                  <TableHeader>
-                    <TableRow className="border-zinc-700 hover:bg-transparent">
-                      {columnMeta.map(
-                        (col: { apiName: string; label: string; dataType: string }, i: number) => (
-                          <TableHead key={col.apiName} className={i === 0 ? thFirst : th}>
-                            {col.label}
-                          </TableHead>
-                        ),
-                      )}
-                    </TableRow>
-                  </TableHeader>
-                  <ContractsTableLoader columnCount={colCount} />
-                </Table>
+              <div className="hidden min-h-0 flex-1 flex-col md:flex">
+                <div
+                  ref={headerScrollRef}
+                  className="contracts-table-header-scroll shrink-0 border-b border-crm-border bg-crm-table-head"
+                  onScroll={() => syncHorizontalScroll("header")}
+                >
+                  <Table className="table-fixed" style={tableWidthStyle}>
+                    <TableHeader>{renderTableHeadRow()}</TableHeader>
+                  </Table>
+                </div>
+                <div
+                  ref={bodyScrollRef}
+                  className="contracts-table-scroll min-h-0 flex-1 overscroll-contain"
+                  onScroll={() => syncHorizontalScroll("body")}
+                >
+                  <Table className="table-fixed" style={tableWidthStyle}>
+                    <ContractsTableLoader
+                      columns={columnMeta}
+                      getCellClassName={(col, i) => getColumnCellClass(col, i, "body")}
+                      getCellStyle={(col) => columnSizeStyle(col)}
+                    />
+                  </Table>
+                </div>
               </div>
             </>
           : <>
-              <div className="space-y-3 p-3 md:hidden">
+              <div className="space-y-3 overflow-auto p-3 md:hidden">
                 {contracts.length === 0 ?
-                  <p className="py-12 text-center text-sm text-zinc-400">No contracts found.</p>
+                  <p className="py-12 text-center text-sm text-crm-text-muted">No contracts found.</p>
                 : contracts.map((row) => (
                     <ContractCard key={row.id} row={row} columns={columnMeta} />
                   ))
                 }
               </div>
-              <div className="hidden min-w-0 md:block">
-                <Table className="min-w-[640px]">
-                  <TableHeader>
-                    <TableRow className="border-zinc-700 hover:bg-transparent">
-                      {columnMeta.map(
-                        (col: { apiName: string; label: string; dataType: string }, i: number) => (
-                          <TableHead key={col.apiName} className={i === 0 ? thFirst : th}>
-                            {col.label}
-                          </TableHead>
-                        ),
-                      )}
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {contracts.length === 0 ?
-                      <TableRow className="border-zinc-800 hover:bg-transparent">
-                        <TableCell
-                          colSpan={colCount}
-                          className="px-6 py-12 text-center text-sm text-zinc-400"
-                        >
-                          No contracts found.
-                        </TableCell>
-                      </TableRow>
-                    : contracts.map((row) => (
-                        <TableRow
-                          key={row.id}
-                          className="border-zinc-800 text-zinc-200 hover:bg-zinc-800/40"
-                        >
-                          {columnMeta.map(
-                            (
-                              col: { apiName: string; label: string; dataType: string },
-                              i: number,
-                            ) => {
-                              const value = formatCellForDisplay(
-                                row.fields[col.apiName],
-                                col.dataType,
-                              );
-                              const cellClass =
-                                i === 0 ? tdFirst
-                                : isStatusField(col.apiName) ? td
-                                : tdMuted;
-                              return (
-                                <TableCell key={col.apiName} className={cellClass}>
-                                  <CellContent
-                                    apiName={col.apiName}
-                                    value={value}
-                                  />
-                                </TableCell>
-                              );
-                            },
-                          )}
+              <div className="hidden min-h-0 flex-1 flex-col md:flex">
+                <div
+                  ref={headerScrollRef}
+                  className="contracts-table-header-scroll shrink-0 border-b border-crm-border bg-crm-table-head"
+                  onScroll={() => syncHorizontalScroll("header")}
+                >
+                  <Table className="table-fixed" style={tableWidthStyle}>
+                    <TableHeader>{renderTableHeadRow()}</TableHeader>
+                  </Table>
+                </div>
+                <div
+                  ref={bodyScrollRef}
+                  className="contracts-table-scroll min-h-0 flex-1 overscroll-contain"
+                  onScroll={() => syncHorizontalScroll("body")}
+                >
+                  <Table className="table-fixed" style={tableWidthStyle}>
+                    <TableBody>
+                      {contracts.length === 0 ?
+                        <TableRow className="border-crm-border hover:bg-transparent">
+                          <TableCell
+                            colSpan={colCount}
+                            className="px-6 py-12 text-center text-sm text-crm-text-muted"
+                          >
+                            No contracts found.
+                          </TableCell>
                         </TableRow>
-                      ))
-                    }
-                  </TableBody>
-                </Table>
+                      : contracts.map((row) => (
+                          <TableRow
+                            key={row.id}
+                            role="link"
+                            tabIndex={0}
+                            className="crm-row-hover cursor-pointer border-crm-border text-crm-text"
+                            onClick={() => openContractRecord(row.id)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                openContractRecord(row.id);
+                              }
+                            }}
+                          >
+                            {columnMeta.map(
+                              (
+                                col: { apiName: string; label: string; dataType: string },
+                                i: number,
+                              ) => {
+                                const raw = getContractFieldDisplayValue(row.fields, col.apiName);
+                                const value = formatCellForDisplay(raw, col.dataType);
+                                const cellClass = getColumnCellClass(col, i, "body");
+                                return (
+                                  <TableCell
+                                    key={col.apiName}
+                                    className={cellClass}
+                                    style={columnSizeStyle(col)}
+                                  >
+                                    <CellContent apiName={col.apiName} value={value} />
+                                  </TableCell>
+                                );
+                              },
+                            )}
+                          </TableRow>
+                        ))
+                      }
+                    </TableBody>
+                  </Table>
+                </div>
               </div>
             </>
           }
         </div>
-        <div className="flex shrink-0 flex-col gap-2 border-t border-zinc-700/80 px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-6">
+        <div className="flex shrink-0 flex-col gap-2 border-t border-crm-border bg-crm-panel px-3 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-6">
           <Button
             type="button"
             variant="outline"
             size="sm"
-            className="w-full cursor-pointer border-zinc-600 bg-zinc-900/50 text-zinc-200 hover:bg-zinc-800 disabled:cursor-not-allowed sm:w-auto"
+            className="crm-toolbar-btn w-full disabled:cursor-not-allowed sm:w-auto"
             disabled={loading || page <= 1}
             onClick={() => setPage((p) => Math.max(1, p - 1))}
           >
             Previous
           </Button>
-          <span className="text-center text-xs text-zinc-500 sm:text-left">
+          <span className="text-center text-xs text-crm-text-muted sm:text-left">
             {loading ?
-              "Loading page…"
+              <PaginationLoadingShimmer />
             : totalPages != null ?
               <>
-                Page <span className="tabular-nums text-zinc-300">{page}</span> /{" "}
-                <span className="tabular-nums text-zinc-300">
+                Page <span className="tabular-nums text-crm-text">{page}</span> /{" "}
+                <span className="tabular-nums text-crm-text">
                   {totalPages.toLocaleString("en-US")}
                 </span>
               </>
@@ -383,7 +542,7 @@ export default function ContractsTable({
             type="button"
             variant="outline"
             size="sm"
-            className="w-full cursor-pointer border-zinc-600 bg-zinc-900/50 text-zinc-200 hover:bg-zinc-800 disabled:cursor-not-allowed sm:w-auto"
+            className="crm-toolbar-btn w-full disabled:cursor-not-allowed sm:w-auto"
             disabled={loading || !hasMore}
             onClick={() => setPage((p) => p + 1)}
           >

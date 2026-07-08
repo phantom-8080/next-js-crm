@@ -27,6 +27,113 @@ function normalizeStoredApiName(name: string): string {
   return LEGACY_COLUMN_ALIASES[name] ?? name;
 }
 
+const LEGACY_TRUNCATED_SERVICE_API_NAMES = new Set(
+  Object.keys(LEGACY_COLUMN_ALIASES).filter((k) => /^(st|nd|rd)_Service_/.test(k)),
+);
+
+/** Zoho metadata sometimes exposes truncated API names (e.g. nd_ instead of 2nd_). */
+export function isLegacyTruncatedServiceApiName(apiName: string): boolean {
+  return LEGACY_TRUNCATED_SERVICE_API_NAMES.has(apiName);
+}
+
+export function normalizeContractFieldApiName(apiName: string): string {
+  return normalizeStoredApiName(apiName);
+}
+
+/** Deduplicated canonical API names for visible columns (localStorage + UI). */
+export function normalizeVisibleApiNames(apiNames: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const name of apiNames) {
+    if (!name || typeof name !== "string") continue;
+    const canonical = normalizeStoredApiName(name.trim());
+    if (!canonical || seen.has(canonical)) continue;
+    seen.add(canonical);
+    result.push(canonical);
+  }
+  return result;
+}
+
+export function filterCatalogForRecordView(catalog: CrmFieldMeta[]): CrmFieldMeta[] {
+  const byCanonical = new Map<string, CrmFieldMeta>();
+
+  for (const field of catalog) {
+    const canonical = normalizeStoredApiName(field.apiName);
+    const existing = byCanonical.get(canonical);
+
+    if (!existing || field.apiName === canonical) {
+      byCanonical.set(canonical, {
+        apiName: canonical,
+        label: field.label || canonical.replace(/_/g, " "),
+        dataType: field.dataType,
+      });
+    }
+  }
+
+  return [...byCanonical.values()].sort((a, b) => a.label.localeCompare(b.label));
+}
+
+export function getContractFieldDisplayValue(
+  fields: Record<string, string>,
+  apiName: string,
+): string {
+  const direct = fields[apiName];
+  if (direct != null && direct !== "") return direct;
+
+  const canonical = normalizeStoredApiName(apiName);
+  if (canonical !== apiName) {
+    const fromCanonical = fields[canonical];
+    if (fromCanonical != null && fromCanonical !== "") return fromCanonical;
+  }
+
+  for (const [legacy, canon] of Object.entries(LEGACY_COLUMN_ALIASES)) {
+    if (canon === apiName || canon === canonical) {
+      const legacyValue = fields[legacy];
+      if (legacyValue != null && legacyValue !== "") return legacyValue;
+    }
+  }
+
+  return fields[apiName] ?? "";
+}
+
+export function expandApiNamesForZohoFetch(apiNames: string[]): string[] {
+  const set = new Set(apiNames.filter(Boolean));
+  for (const name of apiNames) {
+    const canonical = normalizeStoredApiName(name);
+    set.add(canonical);
+    set.add(name);
+    for (const [legacy, canon] of Object.entries(LEGACY_COLUMN_ALIASES)) {
+      if (canon === canonical) {
+        set.add(legacy);
+        set.add(canon);
+      }
+    }
+  }
+  return [...set];
+}
+
+export function mergeLegacyFieldValues(fields: Record<string, string>): Record<string, string> {
+  const out = { ...fields };
+  for (const [legacy, canon] of Object.entries(LEGACY_COLUMN_ALIASES)) {
+    if ((!out[canon] || out[canon] === "") && out[legacy]) {
+      out[canon] = out[legacy];
+    }
+    if ((!out[legacy] || out[legacy] === "") && out[canon]) {
+      out[legacy] = out[canon];
+    }
+  }
+  return out;
+}
+
+export function isUrlLikeField(apiName: string, dataType?: string) {
+  if (dataType && /url|website|link/i.test(dataType)) return true;
+  return /_url$/i.test(apiName) || /url/i.test(apiName);
+}
+
+export function looksLikeHttpUrl(value: string) {
+  return /^https?:\/\//i.test(value.trim());
+}
+
 function parseStoredColumnList(raw: string | null): string[] | null {
   if (!raw) return null;
   try {
@@ -97,7 +204,9 @@ export function loadVisibleApiNames(): string[] {
 
 export function saveVisibleApiNames(apiNames: string[]) {
   if (typeof window === "undefined") return;
-  localStorage.setItem(CONTRACTS_COLUMNS_STORAGE_KEY, JSON.stringify(apiNames));
+  const normalized = normalizeVisibleApiNames(apiNames);
+  localStorage.setItem(CONTRACTS_COLUMNS_STORAGE_KEY, JSON.stringify(normalized));
+  localStorage.removeItem(LEGACY_COLUMNS_STORAGE_KEY);
 }
 
 export function buildFieldsQueryParam(visibleApiNames: string[]) {
@@ -148,5 +257,10 @@ export function formatCellForDisplay(value: unknown, dataType?: string): string 
 }
 
 export function isStatusField(apiName: string) {
-  return apiName === "Contract_Status" || /status/i.test(apiName);
+  return apiName === "Contract_Status" || apiName === "Record_Status";
+}
+
+export function isDateLikeField(apiName: string, dataType?: string) {
+  if (dataType === "date" || dataType === "datetime") return true;
+  return /_date$|_time$|deadline/i.test(apiName);
 }

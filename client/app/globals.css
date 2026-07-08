@@ -36,8 +36,16 @@
     --color-popover: var(--popover);
     --color-card-foreground: var(--card-foreground);
     --color-card: var(--card);
-    --color-foreground: var(--foreground);
     --color-background: var(--background);
+    --color-foreground: var(--foreground);
+    --color-crm-canvas: var(--crm-canvas);
+    --color-crm-panel: var(--crm-panel);
+    --color-crm-panel-muted: var(--crm-panel-muted);
+    --color-crm-table-head: var(--crm-table-head);
+    --color-crm-border: var(--crm-border);
+    --color-crm-text: var(--crm-text);
+    --color-crm-text-muted: var(--crm-text-muted);
+    --color-crm-link: var(--crm-link);
     --radius-sm: calc(var(--radius) * 0.6);
     --radius-md: calc(var(--radius) * 0.8);
     --radius-lg: var(--radius);
@@ -48,6 +56,16 @@
 }
 
 :root {
+    --crm-canvas: #f4f4f5;
+    --crm-panel: #ffffff;
+    --crm-panel-muted: #fafafa;
+    --crm-table-head: #f4f4f5;
+    --crm-border: #d4d4d8;
+    --crm-text: #18181b;
+    --crm-text-muted: #71717a;
+    --crm-link: #2563eb;
+    --crm-scrollbar-track: #f4f4f5;
+    --crm-scrollbar-thumb: #a1a1aa;
     --background: oklch(1 0 0);
     --foreground: oklch(0.145 0 0);
     --card: oklch(1 0 0);
@@ -83,6 +101,16 @@
 }
 
 .dark {
+    --crm-canvas: #000000;
+    --crm-panel: #1b1b20;
+    --crm-panel-muted: #1e1e24;
+    --crm-table-head: #26262d;
+    --crm-border: #52525b;
+    --crm-text: #f4f4f5;
+    --crm-text-muted: #a1a1aa;
+    --crm-link: #60a5fa;
+    --crm-scrollbar-track: #18181b;
+    --crm-scrollbar-thumb: #52525b;
     --background: oklch(0.145 0 0);
     --foreground: oklch(0.985 0 0);
     --card: oklch(0.205 0 0);
@@ -121,7 +149,7 @@
     @apply border-border outline-ring/50;
     }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-crm-canvas text-crm-text;
     }
   html {
     @apply font-sans;
@@ -152,6 +180,83 @@
   animation: table-shimmer-sweep 1.6s ease-in-out infinite;
 }
 
+.contracts-table-scroll {
+  overflow-x: auto;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--crm-scrollbar-thumb) var(--crm-scrollbar-track);
+}
+
+.contracts-table-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 10px;
+}
+
+.contracts-table-scroll::-webkit-scrollbar-track {
+  background: var(--crm-scrollbar-track);
+}
+
+.contracts-table-scroll::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  background: var(--crm-scrollbar-thumb);
+}
+
+.contracts-table-scroll::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--crm-scrollbar-thumb) 80%, var(--crm-text) 20%);
+}
+
+.contracts-table-header-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.contracts-table-header-scroll::-webkit-scrollbar {
+  display: none;
+}
+
 .contracts-table-loader tr {
   animation: contracts-loader-fade-in 0.45s ease-out both;
+}
+
+.contracts-record-loader > div {
+  animation: contracts-loader-fade-in 0.45s ease-out both;
+}
+
+.page-heading {
+  @apply font-semibold tracking-tight text-crm-text;
+}
+
+.section-heading {
+  @apply font-semibold text-crm-text;
+}
+
+.column-heading {
+  @apply text-xs font-semibold uppercase tracking-wide text-crm-text-muted;
+}
+
+.record-field-label {
+  @apply text-xs font-semibold uppercase tracking-wide text-crm-text;
+}
+
+.crm-toolbar-btn {
+  @apply shrink-0 cursor-pointer border-crm-border bg-crm-panel text-crm-text hover:bg-crm-panel-muted;
+}
+
+.crm-row-hover {
+  @apply hover:bg-zinc-100 dark:hover:bg-zinc-800/40;
+}
+
+.crm-status-badge {
+  @apply inline-flex min-w-[72px] justify-center rounded-full px-2.5 py-0.5 text-xs font-semibold;
+}
+
+.crm-status-active {
+  @apply bg-emerald-100 text-emerald-800 ring-1 ring-emerald-600/40;
+  @apply dark:bg-emerald-500/25 dark:text-emerald-200 dark:ring-emerald-400/55;
+}
+
+.crm-status-closed {
+  @apply bg-violet-100 text-violet-900 ring-1 ring-violet-600/40;
+  @apply dark:bg-violet-500/25 dark:text-violet-200 dark:ring-violet-400/55;
 }

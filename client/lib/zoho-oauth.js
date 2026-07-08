@@ -74,7 +74,11 @@ async function requestAccessTokenFromRefresh() {
 
   if (!res.ok || !json.access_token) {
     const detail = json.error ?? json.message ?? JSON.stringify(json);
-    throw new Error(`Zoho token refresh failed: ${detail}`);
+    const hint =
+      String(detail).toLowerCase().includes("access denied") ?
+        " Check ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_REFRESH_TOKEN, and ZOHO_ACCOUNTS_URL (e.g. accounts.zoho.com vs accounts.zoho.eu) in lib/zoho-oauth.js or environment variables."
+      : "";
+    throw new Error(`Zoho token refresh failed: ${detail}.${hint}`);
   }
 
   setCachedAccessToken(json.access_token, json.expires_in);
@@ -89,30 +93,47 @@ export async function getZohoAccessToken({ force = false } = {}) {
     return cachedAccessToken;
   }
 
-  if (!force && refreshInFlight) {
+  if (force) {
+    invalidateZohoAccessTokenCache();
+  }
+
+  if (refreshInFlight) {
     return refreshInFlight;
   }
 
-  const work = requestAccessTokenFromRefresh();
-  if (!force) {
-    refreshInFlight = work;
-  }
-
-  try {
-    const token = await work;
-    logAccessTokenInDev(force ? "forced refresh" : "refresh");
-    return token;
-  } finally {
-    if (!force) {
+  refreshInFlight = requestAccessTokenFromRefresh()
+    .then((token) => {
+      logAccessTokenInDev(force ? "forced refresh" : "refresh");
+      return token;
+    })
+    .finally(() => {
       refreshInFlight = null;
-    }
-  }
+    });
+
+  return refreshInFlight;
 }
 
 // Check if the response is an expired token
 
 export function isZohoTokenExpiredResponse(res, body) {
-  if (res.status === 401) return true;
   const code = String(body?.code ?? "").toUpperCase();
-  return code === "INVALID_TOKEN" || code === "AUTHENTICATION_FAILURE";
+  if (code === "INVALID_TOKEN" || code === "AUTHENTICATION_FAILURE") {
+    return true;
+  }
+  if (
+    code === "OAUTH_SCOPE_MISMATCH" ||
+    code === "NO_PERMISSION" ||
+    code === "INVALID_MODULE" ||
+    code === "AUTHORIZATION_FAILED"
+  ) {
+    return false;
+  }
+  if (res.status !== 401) return false;
+
+  const message = String(body?.message ?? body?.error ?? "").toLowerCase();
+  return (
+    message.includes("invalid oauth") ||
+    message.includes("invalid token") ||
+    message.includes("authentication failed")
+  );
 }
