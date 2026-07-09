@@ -63,7 +63,7 @@ const MODULES: ModuleCard[] = [
     description: "Vendor billing and invoices.",
     href: "/vendor-invoice",
     icon: Receipt,
-    recordCount: 39,
+    recordCount: 3,
   },
   {
     title: "All vendors",
