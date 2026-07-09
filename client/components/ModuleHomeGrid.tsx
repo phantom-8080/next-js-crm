@@ -77,7 +77,8 @@ const MODULES: ModuleCard[] = [
     description: "Vendor directory and profiles.",
     href: "/vendors",
     icon: Building2,
-    recordCount: 4,
+    useLiveRecordCount: true,
+    liveCountPath: "/api/vendors?page=1",
   },
 ];
 

@@ -1,32 +1,16 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import SideBar from "@/components/SideBar";
 import VendorTable from "@/components/VendorTable";
-import type {
-  ContractFieldFilterSelection,
-  ContractFilterApplyPayload,
-} from "@/lib/contractFilterTypes";
-import {
-  VENDOR_STATIC_ALL_VIEW_ID,
-  VENDOR_STATIC_FILTER_FIELDS,
-  VENDOR_STATIC_FILTER_SECTIONS,
-} from "@/lib/vendorStaticData";
+import type { ContractFilterApplyPayload } from "@/lib/contractFilterTypes";
 
 export default function VendorsPage() {
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [searchCriteria, setSearchCriteria] = useState<string | null>(null);
   const [customViewId, setCustomViewId] = useState<string | null>(null);
-  const [fieldSelections, setFieldSelections] = useState<ContractFieldFilterSelection[]>([]);
   const [filteredTotal, setFilteredTotal] = useState<number | null>(null);
   const [recordsLoading, setRecordsLoading] = useState(false);
-
-  const staticFilterMeta = useMemo(
-    () => ({
-      sections: VENDOR_STATIC_FILTER_SECTIONS,
-      fields: VENDOR_STATIC_FILTER_FIELDS,
-    }),
-    [],
-  );
 
   const handleFilteredTotalChange = useCallback((total: number | null) => {
     setFilteredTotal(total);
@@ -37,18 +21,12 @@ export default function VendorsPage() {
   }, []);
 
   const handleApplyFilters = useCallback((payload: ContractFilterApplyPayload) => {
+    setSearchCriteria(payload.criteria);
     setCustomViewId(payload.customViewId);
-    setFieldSelections(payload.fieldSelections ?? []);
-    if (!payload.customViewId || payload.customViewId === VENDOR_STATIC_ALL_VIEW_ID) {
-      if (!(payload.fieldSelections?.length ?? 0)) {
-        setFilteredTotal(null);
-      }
+    if (!payload.criteria && !payload.customViewId) {
+      setFilteredTotal(null);
     }
   }, []);
-
-  const listFiltersActive =
-    fieldSelections.length > 0 ||
-    (customViewId != null && customViewId !== VENDOR_STATIC_ALL_VIEW_ID);
 
   return (
     <div className="flex h-[100dvh] min-h-0 flex-col overflow-hidden bg-crm-canvas p-2 sm:p-3">
@@ -56,24 +34,23 @@ export default function VendorsPage() {
         <SideBar
           open={filtersOpen}
           onClose={() => setFiltersOpen(false)}
-          searchCriteria={null}
+          searchCriteria={searchCriteria}
           customViewId={customViewId}
           filteredTotal={filteredTotal}
           applyLoading={recordsLoading}
           onApplyFilters={handleApplyFilters}
+          filtersApiUrl="/api/vendors/filters"
           filterPanelId="vendors-filters"
           filterAriaLabel="Vendor filters"
-          filterMetaOverride={staticFilterMeta}
-          listFiltersActive={listFiltersActive}
         />
         <VendorTable
           filtersOpen={filtersOpen}
           onOpenFilters={() => setFiltersOpen(true)}
+          searchCriteria={searchCriteria}
           customViewId={customViewId}
-          fieldSelections={fieldSelections}
           onClearSearchCriteria={() => {
+            setSearchCriteria(null);
             setCustomViewId(null);
-            setFieldSelections([]);
             setFilteredTotal(null);
           }}
           onFilteredTotalChange={handleFilteredTotalChange}

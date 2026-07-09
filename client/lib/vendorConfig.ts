@@ -1,3 +1,4 @@
+/** Zoho CRM module API name for vendors. */
 export const ZOHO_VENDORS_MODULE = "Vendors";
 
 export const VENDOR_LIST_FIELDS = [
