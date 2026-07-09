@@ -79,3 +79,16 @@ export function ColumnSettingsFieldsSkeleton({ rows = 10 }: { rows?: number }) {
     </ul>
   );
 }
+
+export function FilterSidebarFieldsSkeleton({ rows = 12 }: { rows?: number }) {
+  return (
+    <ul className="space-y-0.5 px-1 py-1" aria-busy="true" aria-label="Loading filters">
+      {Array.from({ length: rows }, (_, i) => (
+        <li key={i} className="flex items-center gap-2 rounded-lg px-2 py-2.5">
+          <ShimmerBar className="h-4 min-w-0 flex-1" delayMs={i * 35} />
+          <ShimmerBar className="size-4 shrink-0 rounded" delayMs={i * 35 + 15} />
+        </li>
+      ))}
+    </ul>
+  );
+}

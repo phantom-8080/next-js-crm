@@ -18,6 +18,19 @@ export function getZohoModuleLayoutsUrl(module = ZOHO_CRM_MODULE_CONTRACTS) {
   return `${ZOHO_CRM_V8_BASE}/settings/layouts?module=${encodeURIComponent(module)}`;
 }
 
+/** Search records with criteria — CRM v3 (requires ZohoSearch.securesearch.READ) */
+export function getZohoModuleSearchUrl(
+  module = ZOHO_CRM_MODULE_CONTRACTS,
+  { criteria, fields, page = 1, perPage = 100 } = {},
+) {
+  const params = new URLSearchParams();
+  if (criteria) params.set("criteria", criteria);
+  if (fields) params.set("fields", fields);
+  params.set("page", String(page));
+  params.set("per_page", String(perPage));
+  return `${ZOHO_CRM_BASE}/${encodeURIComponent(module)}/search?${params.toString()}`;
+}
+
 async function fetchWithToken(url, token) {
   const res = await fetch(url, {
     method: "GET",

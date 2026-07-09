@@ -1,4 +1,4 @@
-import { fetchZohoJson, ZOHO_CRM_BASE } from "@/lib/zoho";
+import { fetchZohoJson, getZohoModuleSearchUrl, ZOHO_CRM_BASE } from "@/lib/zoho";
 import {
   expandApiNamesForZohoFetch,
   getContractFieldDisplayValue,
@@ -27,10 +27,27 @@ export async function GET(request) {
   const visibleApiNames = parseVisibleFields(searchParams);
   const fetchFieldNames = expandApiNamesForZohoFetch(visibleApiNames);
   const zohoFields = ["id", ...fetchFieldNames].join(",");
-  const fieldsQuery = encodeURIComponent(zohoFields);
+  const criteria = searchParams.get("criteria")?.trim() || null;
+  const cvid = searchParams.get("cvid")?.trim() || null;
 
-  const listUrl = `${ZOHO_CRM_BASE}/Contracts?fields=${fieldsQuery}&per_page=${perPage}&page=${page}`;
-  const countUrl = `${ZOHO_CRM_BASE}/Contracts/actions/count`;
+  const listUrl =
+    cvid ?
+      `${ZOHO_CRM_BASE}/Contracts?cvid=${encodeURIComponent(cvid)}&fields=${encodeURIComponent(zohoFields)}&per_page=${perPage}&page=${page}`
+    : criteria ?
+      getZohoModuleSearchUrl("Contracts", {
+        criteria,
+        fields: zohoFields,
+        page,
+        perPage,
+      })
+    : `${ZOHO_CRM_BASE}/Contracts?fields=${encodeURIComponent(zohoFields)}&per_page=${perPage}&page=${page}`;
+
+  const countUrl =
+    cvid ?
+      `${ZOHO_CRM_BASE}/Contracts/actions/count?cvid=${encodeURIComponent(cvid)}`
+    : criteria ?
+      `${ZOHO_CRM_BASE}/Contracts/actions/count?criteria=${encodeURIComponent(criteria)}`
+    : `${ZOHO_CRM_BASE}/Contracts/actions/count`;
 
   let listResult;
   let countResult;
@@ -47,6 +64,25 @@ export async function GET(request) {
   }
 
   const { res: zohoRes, body } = listResult;
+
+  if (zohoRes.status === 204) {
+    let totalCount = 0;
+    if (countResult.res.ok && typeof countResult.body.count === "number") {
+      totalCount = countResult.body.count;
+    }
+    return Response.json({
+      contracts: [],
+      totalCount,
+      loadedCount: 0,
+      page,
+      perPage,
+      hasMore: false,
+      visibleFields: visibleApiNames,
+      criteria,
+      cvid,
+      filtered: Boolean(criteria || cvid),
+    });
+  }
 
   if (!zohoRes.ok) {
     return Response.json(
@@ -76,5 +112,8 @@ export async function GET(request) {
     perPage,
     hasMore: Boolean(body.info?.more_records),
     visibleFields: visibleApiNames,
+    criteria,
+    cvid,
+    filtered: Boolean(criteria || cvid),
   });
 }

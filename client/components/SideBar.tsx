@@ -1,64 +1,259 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { ChevronDown, Filter, Search, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown, Filter, Loader2, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { FilterSidebarFieldsSkeleton } from "@/components/LoadingShimmer";
+import {
+  buildCriteriaFromFieldFilters,
+  selectionsFromCheckboxState,
+} from "@/lib/buildContractFilterCriteria";
+import type {
+  ContractFieldFilterSelection,
+  ContractFilterApplyPayload,
+  ContractFilterFieldMeta,
+  ContractFilterSection,
+} from "@/lib/contractFilterTypes";
 
-const systemFilters = [
-  "Touched Records",
-  "Untouched Records",
-  "Record Action",
-  "Related Records Action",
-  "Activities",
-  "Cadences",
-  "Locked",
-  "Latest Email Status",
-];
-
-const fieldFilters = [
-  "1st Service Completed Date",
-  "1st Service Confirmed Scheduled Date",
-];
-
-function FilterGroup({
-  title,
-  items,
-  selected,
+function SystemViewFilterRow({
+  field,
+  checked,
   onToggle,
 }: {
-  title: string;
-  items: string[];
-  selected: Record<string, boolean>;
-  onToggle: (id: string) => void;
+  field: ContractFilterFieldMeta;
+  checked: boolean;
+  onToggle: () => void;
 }) {
   return (
-    <section className="px-3 py-2">
+    <label className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 transition hover:bg-zinc-100 dark:hover:bg-zinc-800/70">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={onToggle}
+        className="h-4 w-4 shrink-0 rounded border-crm-border bg-crm-panel accent-blue-500"
+      />
+      <span className="min-w-0 text-sm text-crm-text">{field.label}</span>
+    </label>
+  );
+}
+
+function FilterSectionGroup({
+  section,
+  filterSearch,
+  fieldSelections,
+  manualDrafts,
+  selectedCustomViewId,
+  onToggleFieldValue,
+  onManualChange,
+  getManualDraft,
+  onToggleCustomView,
+}: {
+  section: ContractFilterSection;
+  filterSearch: string;
+  fieldSelections: Map<string, Set<string>>;
+  manualDrafts: Map<string, ManualFilterDraft>;
+  selectedCustomViewId: string | null;
+  onToggleFieldValue: (apiName: string, value: string) => void;
+  onManualChange: (apiName: string, field: ContractFilterFieldMeta, patch: Partial<ManualFilterDraft>) => void;
+  getManualDraft: (apiName: string, field: ContractFilterFieldMeta) => ManualFilterDraft;
+  onToggleCustomView: (field: ContractFilterFieldMeta) => void;
+}) {
+  const [open, setOpen] = useState(section.id === "fields");
+  const q = filterSearch.trim().toLowerCase();
+
+  const visibleFields = useMemo(() => {
+    if (!q) return section.fields;
+    return section.fields.filter(
+      (f) =>
+        f.label.toLowerCase().includes(q) ||
+        f.apiName.toLowerCase().includes(q) ||
+        (f.groupLabel?.toLowerCase().includes(q) ?? false) ||
+        f.options.some((o) => o.label.toLowerCase().includes(q)),
+    );
+  }, [section.fields, q]);
+
+  if (visibleFields.length === 0) return null;
+
+  let lastGroup: string | undefined;
+
+  return (
+    <section className="border-b border-crm-border/80 last:border-b-0">
       <button
         type="button"
-        className="group flex w-full items-center justify-between rounded-lg px-2 py-2 transition hover:bg-zinc-100 dark:hover:bg-zinc-800"
+        onClick={() => setOpen((v) => !v)}
+        className="group flex w-full items-center gap-2 px-2 py-2.5 transition hover:bg-zinc-100 dark:hover:bg-zinc-800/60"
       >
-        <span className="column-heading min-w-0 flex-1">
-          {title}
-        </span>
-        <ChevronDown className="h-4 w-4 text-crm-text-muted transition group-hover:text-crm-text" />
+        <ChevronDown
+          className={cn(
+            "h-3.5 w-3.5 shrink-0 text-crm-text-muted transition group-hover:text-crm-text",
+            open && "rotate-180",
+          )}
+        />
+        <span className="column-heading min-w-0 flex-1 text-left">{section.title}</span>
+        <span className="text-xs tabular-nums text-crm-text-muted">{visibleFields.length}</span>
       </button>
 
-      <div className="mt-2 space-y-1">
-        {items.map((item) => (
-          <label
-            key={item}
-            className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 transition hover:bg-zinc-100 dark:hover:bg-zinc-800/70"
-          >
-            <input
-              type="checkbox"
-              checked={!!selected[item]}
-              onChange={() => onToggle(item)}
-              className="h-4 w-4 shrink-0 rounded border-crm-border bg-crm-panel accent-blue-500"
-            />
-            <span className="min-w-0 text-sm text-crm-text">{item}</span>
-          </label>
-        ))}
-      </div>
+      {open ?
+        <div className="pb-2 pl-1">
+          {section.id === "system_defined" ?
+            visibleFields.map((field) => (
+              <SystemViewFilterRow
+                key={field.apiName}
+                field={field}
+                checked={selectedCustomViewId === field.customViewId}
+                onToggle={() => onToggleCustomView(field)}
+              />
+            ))
+          : visibleFields.map((field) => {
+              const showGroup = field.groupLabel && field.groupLabel !== lastGroup;
+              if (field.groupLabel) lastGroup = field.groupLabel;
+              return (
+                <div key={field.apiName}>
+                  {showGroup ?
+                    <p className="column-heading px-2 pb-1 pt-2 text-xs text-crm-text-muted">
+                      {field.groupLabel}
+                    </p>
+                  : null}
+                  <FieldFilterSection
+                    field={field}
+                    selectedValues={fieldSelections.get(field.apiName) ?? new Set()}
+                    onToggleValue={(value) => onToggleFieldValue(field.apiName, value)}
+                    manualDraft={getManualDraft(field.apiName, field)}
+                    onManualChange={(patch) => onManualChange(field.apiName, field, patch)}
+                  />
+                </div>
+              );
+            })
+          }
+        </div>
+      : null}
+    </section>
+  );
+}
+
+type ManualFilterDraft = {
+  operator: string;
+  value: string;
+  value2: string;
+};
+
+function defaultOperator(field: ContractFilterFieldMeta) {
+  return field.operators[0]?.id ?? "equals";
+}
+
+function isDateType(dataType: string) {
+  return dataType === "date" || dataType === "datetime";
+}
+
+function FieldFilterSection({
+  field,
+  selectedValues,
+  onToggleValue,
+  manualDraft,
+  onManualChange,
+}: {
+  field: ContractFilterFieldMeta;
+  selectedValues: Set<string>;
+  onToggleValue: (value: string) => void;
+  manualDraft: ManualFilterDraft;
+  onManualChange: (patch: Partial<ManualFilterDraft>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const hasCheckbox = field.hasOptions && field.options.length > 0;
+  const manualActive =
+    !hasCheckbox &&
+    (manualDraft.value.trim().length > 0 ||
+      (manualDraft.operator === "between" && manualDraft.value2.trim().length > 0));
+  const active = hasCheckbox ? selectedValues.size > 0 : manualActive;
+
+  return (
+    <section className="border-b border-crm-border/60 last:border-b-0">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="group flex w-full items-center justify-between rounded-lg px-2 py-2 transition hover:bg-zinc-100 dark:hover:bg-zinc-800"
+      >
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate text-left text-sm",
+            active ? "font-medium text-crm-text" : "text-crm-text",
+          )}
+        >
+          {field.label}
+          {hasCheckbox && selectedValues.size > 0 ?
+            <span className="ml-1.5 text-xs text-blue-400">({selectedValues.size})</span>
+          : null}
+          {!hasCheckbox && manualActive ?
+            <span className="ml-1.5 text-xs text-blue-400">(1)</span>
+          : null}
+        </span>
+        <ChevronDown
+          className={cn(
+            "h-4 w-4 shrink-0 text-crm-text-muted transition group-hover:text-crm-text",
+            open && "rotate-180",
+          )}
+        />
+      </button>
+
+      {open ?
+        <div className="space-y-2 px-2 pb-3">
+          {hasCheckbox ?
+            <div className="max-h-48 space-y-0.5 overflow-y-auto">
+              {field.options.map((opt) => (
+                <label
+                  key={opt.value}
+                  className="flex cursor-pointer items-center gap-3 rounded-lg px-1 py-1.5 transition hover:bg-zinc-100 dark:hover:bg-zinc-800/70"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedValues.has(opt.value)}
+                    onChange={() => onToggleValue(opt.value)}
+                    className="h-4 w-4 shrink-0 rounded border-crm-border bg-crm-panel accent-blue-500"
+                  />
+                  <span className="min-w-0 truncate text-sm text-crm-text">{opt.label}</span>
+                </label>
+              ))}
+            </div>
+          : <>
+              <label className="block">
+                <span className="mb-1 block text-xs text-crm-text-muted">Condition</span>
+                <select
+                  value={manualDraft.operator}
+                  onChange={(e) => onManualChange({ operator: e.target.value })}
+                  className="h-9 w-full rounded-lg border border-crm-border bg-crm-panel px-2 text-sm text-crm-text outline-none focus:border-blue-500"
+                >
+                  {field.operators.map((op) => (
+                    <option key={op.id} value={op.id}>
+                      {op.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs text-crm-text-muted">Value</span>
+                <input
+                  type={isDateType(field.dataType) ? "date" : "text"}
+                  value={manualDraft.value}
+                  onChange={(e) => onManualChange({ value: e.target.value })}
+                  placeholder={`Enter ${field.label.toLowerCase()}…`}
+                  className="h-9 w-full rounded-lg border border-crm-border bg-crm-panel px-3 text-sm text-crm-text outline-none focus:border-blue-500"
+                />
+              </label>
+              {manualDraft.operator === "between" ?
+                <label className="block">
+                  <span className="mb-1 block text-xs text-crm-text-muted">To</span>
+                  <input
+                    type={isDateType(field.dataType) ? "date" : "text"}
+                    value={manualDraft.value2}
+                    onChange={(e) => onManualChange({ value2: e.target.value })}
+                    className="h-9 w-full rounded-lg border border-crm-border bg-crm-panel px-3 text-sm text-crm-text outline-none focus:border-blue-500"
+                  />
+                </label>
+              : null}
+            </>
+          }
+        </div>
+      : null}
     </section>
   );
 }
@@ -66,17 +261,110 @@ function FilterGroup({
 type SideBarProps = {
   open: boolean;
   onClose: () => void;
+  onApplyFilters: (payload: ContractFilterApplyPayload) => void;
+  searchCriteria?: string | null;
+  customViewId?: string | null;
+  filteredTotal?: number | null;
+  applyLoading?: boolean;
 };
 
-export default function SideBar({ open, onClose }: SideBarProps) {
-  const allFilterIds = useMemo(
-    () => [...systemFilters, ...fieldFilters],
-    [],
-  );
+function emptyManualDraft(field: ContractFilterFieldMeta): ManualFilterDraft {
+  return { operator: defaultOperator(field), value: "", value2: "" };
+}
 
-  const [selected, setSelected] = useState<Record<string, boolean>>({});
+export default function SideBar({
+  open,
+  onClose,
+  onApplyFilters,
+  searchCriteria = null,
+  customViewId = null,
+  filteredTotal = null,
+  applyLoading = false,
+}: SideBarProps) {
+  const applyClosePending = useRef(false);
+  const [sections, setSections] = useState<ContractFilterSection[]>([]);
+  const [fieldMeta, setFieldMeta] = useState<ContractFilterFieldMeta[]>([]);
+  const [metaLoading, setMetaLoading] = useState(true);
+  const [metaError, setMetaError] = useState<string | null>(null);
+  const [filterSearch, setFilterSearch] = useState("");
+  const [fieldSelections, setFieldSelections] = useState<Map<string, Set<string>>>(() => new Map());
+  const [manualDrafts, setManualDrafts] = useState<Map<string, ManualFilterDraft>>(() => new Map());
+  const [selectedCustomViewId, setSelectedCustomViewId] = useState<string | null>(null);
 
-  const hasFilters = allFilterIds.some((id) => selected[id]);
+  useEffect(() => {
+    if (searchCriteria == null && customViewId == null) {
+      setFieldSelections(new Map());
+      setManualDrafts(new Map());
+      setSelectedCustomViewId(null);
+    } else if (customViewId) {
+      setSelectedCustomViewId(customViewId);
+    }
+  }, [searchCriteria, customViewId]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      setMetaLoading(true);
+      setMetaError(null);
+      try {
+        const res = await fetch("/api/contracts/filters");
+        const data = (await res.json()) as {
+          sections?: ContractFilterSection[];
+          fields?: ContractFilterFieldMeta[];
+          error?: string;
+        };
+        if (!res.ok) {
+          throw new Error(data.error ?? "Failed to load filters");
+        }
+        if (!cancelled) {
+          setSections(data.sections ?? []);
+          setFieldMeta(data.fields ?? []);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setMetaError(err instanceof Error ? err.message : "Failed to load filters");
+          setSections([]);
+          setFieldMeta([]);
+        }
+      } finally {
+        if (!cancelled) setMetaLoading(false);
+      }
+    }
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const hasCheckboxFilters = [...fieldSelections.values()].some((s) => s.size > 0);
+  const hasManualFilters = [...manualDrafts.entries()].some(([apiName, draft]) => {
+    const field = fieldMeta.find((f) => f.apiName === apiName);
+    if (field?.dataType === "custom_view") return false;
+    if (draft.operator === "between") {
+      return draft.value.trim() && draft.value2.trim();
+    }
+    return draft.value.trim().length > 0;
+  });
+  const hasPendingFilters =
+    hasCheckboxFilters || hasManualFilters || Boolean(selectedCustomViewId);
+  const hasActiveFilter = Boolean(searchCriteria || customViewId);
+
+  const hasVisibleSections = useMemo(() => {
+    const q = filterSearch.trim().toLowerCase();
+    if (sections.length === 0) return false;
+    if (!q) return true;
+    return sections.some((section) =>
+      section.fields.some(
+        (f) =>
+          f.label.toLowerCase().includes(q) ||
+          f.apiName.toLowerCase().includes(q) ||
+          (f.groupLabel?.toLowerCase().includes(q) ?? false) ||
+          f.options.some((o) => o.label.toLowerCase().includes(q)),
+      ),
+    );
+  }, [sections, filterSearch]);
 
   useEffect(() => {
     if (!open) return;
@@ -90,17 +378,94 @@ export default function SideBar({ open, onClose }: SideBarProps) {
     };
   }, [open]);
 
-  function toggleFilter(id: string) {
-    setSelected((prev) => ({ ...prev, [id]: !prev[id] }));
+  useEffect(() => {
+    if (applyClosePending.current && !applyLoading) {
+      applyClosePending.current = false;
+      onClose();
+    }
+  }, [applyLoading, onClose]);
+
+  function toggleFieldValue(apiName: string, value: string) {
+    setSelectedCustomViewId(null);
+    setFieldSelections((prev) => {
+      const next = new Map(prev);
+      const set = new Set(next.get(apiName) ?? []);
+      if (set.has(value)) set.delete(value);
+      else set.add(value);
+      if (set.size === 0) next.delete(apiName);
+      else next.set(apiName, set);
+      return next;
+    });
+  }
+
+  function updateManualDraft(apiName: string, field: ContractFilterFieldMeta, patch: Partial<ManualFilterDraft>) {
+    setSelectedCustomViewId(null);
+    setManualDrafts((prev) => {
+      const next = new Map(prev);
+      const current = next.get(apiName) ?? emptyManualDraft(field);
+      next.set(apiName, { ...current, ...patch });
+      return next;
+    });
+  }
+
+  function getManualDraft(apiName: string, field: ContractFilterFieldMeta) {
+    return manualDrafts.get(apiName) ?? emptyManualDraft(field);
+  }
+
+  function toggleCustomView(field: ContractFilterFieldMeta) {
+    const id = field.customViewId ?? null;
+    setFieldSelections(new Map());
+    setManualDrafts(new Map());
+    setSelectedCustomViewId((prev) => (prev === id ? null : id));
   }
 
   function clearFilters() {
-    setSelected({});
+    if (applyLoading) return;
+    setFieldSelections(new Map());
+    setManualDrafts(new Map());
+    setSelectedCustomViewId(null);
+    applyClosePending.current = false;
+    onApplyFilters({ criteria: null, customViewId: null });
   }
 
   function applyFilters() {
-    const active = allFilterIds.filter((id) => selected[id]);
-    console.log("Apply filters:", active);
+    if (applyLoading) return;
+
+    if (selectedCustomViewId && !hasCheckboxFilters && !hasManualFilters) {
+      applyClosePending.current = true;
+      onApplyFilters({ criteria: null, customViewId: selectedCustomViewId });
+      return;
+    }
+
+    const selections: ContractFieldFilterSelection[] = [
+      ...selectionsFromCheckboxState(fieldSelections),
+    ];
+
+    for (const field of fieldMeta) {
+      if (field.dataType === "custom_view") continue;
+      if (field.hasOptions && field.options.length > 0) continue;
+      const draft = manualDrafts.get(field.apiName);
+      if (!draft?.value.trim()) continue;
+
+      if (draft.operator === "between") {
+        if (!draft.value2.trim()) continue;
+        selections.push({
+          apiName: field.apiName,
+          operator: "between",
+          values: [draft.value.trim(), draft.value2.trim()],
+        });
+      } else {
+        selections.push({
+          apiName: field.apiName,
+          operator: draft.operator,
+          values: [draft.value.trim()],
+        });
+      }
+    }
+
+    const criteria = buildCriteriaFromFieldFilters(selections);
+    applyClosePending.current = true;
+    onApplyFilters({ criteria, customViewId: null });
   }
 
   return (
@@ -135,7 +500,12 @@ export default function SideBar({ open, onClose }: SideBarProps) {
               </div>
               <div className="min-w-0">
                 <h2 className="section-heading text-lg">Filters</h2>
-                <p className="text-xs text-crm-text-muted">Filter Contracts</p>
+                <p className="text-xs text-crm-text-muted">
+                  {hasActiveFilter && filteredTotal != null ?
+                    `${filteredTotal.toLocaleString("en-US")} matching records`
+                  : metaLoading ? "Loading…"
+                  : `${fieldMeta.length.toLocaleString("en-US")} filterable fields`}
+                </p>
               </div>
             </div>
             <button
@@ -154,6 +524,8 @@ export default function SideBar({ open, onClose }: SideBarProps) {
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-crm-text-muted" />
             <input
               type="text"
+              value={filterSearch}
+              onChange={(e) => setFilterSearch(e.target.value)}
               placeholder="Search filters..."
               className="h-10 w-full rounded-xl border border-crm-border bg-crm-panel pl-10 pr-3 text-sm text-crm-text outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
             />
@@ -171,36 +543,56 @@ export default function SideBar({ open, onClose }: SideBarProps) {
             "[&::-webkit-scrollbar-thumb:hover]:bg-zinc-500",
           ].join(" ")}
         >
-          <div className="px-1 pb-4">
-            <FilterGroup
-              title="System Defined Filters"
-              items={systemFilters}
-              selected={selected}
-              onToggle={toggleFilter}
-            />
-            <div className="mx-4 border-t border-crm-border" />
-            <FilterGroup
-              title="Filter By Fields"
-              items={fieldFilters}
-              selected={selected}
-              onToggle={toggleFilter}
-            />
+          <div className="px-1 py-2">
+            {metaLoading ?
+              <FilterSidebarFieldsSkeleton rows={14} />
+            : metaError ?
+              <p className="px-2 py-4 text-sm text-red-400">{metaError}</p>
+            : sections.length === 0 ?
+              <p className="px-2 py-4 text-sm text-crm-text-muted">No filter fields available.</p>
+            : !hasVisibleSections ?
+              <p className="px-2 py-4 text-sm text-crm-text-muted">No matching filter fields.</p>
+            : sections.map((section) => (
+                <FilterSectionGroup
+                  key={section.id}
+                  section={section}
+                  filterSearch={filterSearch}
+                  fieldSelections={fieldSelections}
+                  manualDrafts={manualDrafts}
+                  selectedCustomViewId={selectedCustomViewId}
+                  onToggleFieldValue={toggleFieldValue}
+                  onManualChange={updateManualDraft}
+                  getManualDraft={getManualDraft}
+                  onToggleCustomView={toggleCustomView}
+                />
+              ))
+            }
           </div>
         </div>
 
-        {hasFilters && (
+        {(hasPendingFilters || hasActiveFilter) && (
           <div className="shrink-0 space-y-2 border-t border-crm-border p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-            <button
-              type="button"
-              onClick={applyFilters}
-              className="h-9 w-full rounded-lg bg-gradient-to-b from-blue-500 to-blue-700 text-sm font-medium text-white transition hover:brightness-110"
-            >
-              Apply Filter
-            </button>
+            {hasPendingFilters ?
+              <button
+                type="button"
+                onClick={applyFilters}
+                disabled={applyLoading}
+                aria-busy={applyLoading}
+                className="flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-b from-blue-500 to-blue-700 text-sm font-medium text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {applyLoading ?
+                  <>
+                    <Loader2 className="size-4 animate-spin" aria-hidden />
+                    Applying…
+                  </>
+                : "Apply Filter"}
+              </button>
+            : null}
             <button
               type="button"
               onClick={clearFilters}
-              className="h-8 w-full rounded-lg border border-crm-border bg-crm-panel-muted text-sm text-crm-text transition hover:bg-crm-panel"
+              disabled={applyLoading}
+              className="h-8 w-full rounded-lg border border-crm-border bg-crm-panel-muted text-sm text-crm-text transition hover:bg-crm-panel disabled:cursor-not-allowed disabled:opacity-60"
             >
               Clear
             </button>

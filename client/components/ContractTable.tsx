@@ -137,6 +137,11 @@ const PAGE_SIZE = 100;
 type ContractsTableProps = {
   filtersOpen?: boolean;
   onOpenFilters?: () => void;
+  searchCriteria?: string | null;
+  customViewId?: string | null;
+  onClearSearchCriteria?: () => void;
+  onFilteredTotalChange?: (total: number | null) => void;
+  onContractsLoadingChange?: (loading: boolean) => void;
 };
 
 function ContractCard({
@@ -190,6 +195,11 @@ function ContractCard({
 export default function ContractsTable({
   filtersOpen = false,
   onOpenFilters,
+  searchCriteria = null,
+  customViewId = null,
+  onClearSearchCriteria,
+  onFilteredTotalChange,
+  onContractsLoadingChange,
 }: ContractsTableProps) {
   const { visibleApiNames, setVisibleApiNames } = useContractVisibleColumns();
   const [fieldCatalog, setFieldCatalog] = useState<CrmFieldMeta[]>(FALLBACK_FIELD_CATALOG);
@@ -232,18 +242,34 @@ export default function ContractsTable({
   );
 
   useEffect(() => {
+    setPage(1);
+  }, [searchCriteria, customViewId]);
+
+  useEffect(() => {
     let cancelled = false;
 
     async function loadContracts() {
       setLoading(true);
+      onContractsLoadingChange?.(true);
       setError(null);
 
       try {
-        const res = await fetch(`/api/contracts?page=${page}&fields=${fieldsParam}`);
+        const cvidPart =
+          customViewId && !searchCriteria ?
+            `&cvid=${encodeURIComponent(customViewId)}`
+          : "";
+        const criteriaPart =
+          searchCriteria && !customViewId ?
+            `&criteria=${encodeURIComponent(searchCriteria)}`
+          : "";
+        const res = await fetch(
+          `/api/contracts?page=${page}&fields=${fieldsParam}${criteriaPart}${cvidPart}`,
+        );
         const data = (await res.json()) as {
           contracts?: ContractRecord[];
           totalCount?: number;
           hasMore?: boolean;
+          filtered?: boolean;
           error?: string;
         };
 
@@ -253,9 +279,14 @@ export default function ContractsTable({
 
         if (!cancelled) {
           setContracts(data.contracts ?? []);
-          setTotalCount(
-            typeof data.totalCount === "number" ? data.totalCount : (data.contracts ?? []).length,
-          );
+          const total =
+            typeof data.totalCount === "number" ? data.totalCount : (data.contracts ?? []).length;
+          setTotalCount(total);
+          if (data.filtered && onFilteredTotalChange) {
+            onFilteredTotalChange(total);
+          } else if (!searchCriteria && !customViewId && onFilteredTotalChange) {
+            onFilteredTotalChange(null);
+          }
           setHasMore(Boolean(data.hasMore));
         }
       } catch (err) {
@@ -268,6 +299,7 @@ export default function ContractsTable({
       } finally {
         if (!cancelled) {
           setLoading(false);
+          onContractsLoadingChange?.(false);
         }
       }
     }
@@ -277,7 +309,7 @@ export default function ContractsTable({
     return () => {
       cancelled = true;
     };
-  }, [page, fieldsParam]);
+  }, [page, fieldsParam, searchCriteria, customViewId, onFilteredTotalChange, onContractsLoadingChange]);
 
   const applyColumns = useCallback(
     (apiNames: string[]) => {
@@ -292,6 +324,8 @@ export default function ContractsTable({
     totalCount != null ? totalCount.toLocaleString("en-US")
     : loading ? "—"
     : "0";
+  const totalSuffix =
+    searchCriteria || customViewId ? " matching records" : " total in CRM";
 
   const colCount = Math.max(1, columnMeta.length);
 
@@ -380,12 +414,24 @@ export default function ContractsTable({
             : null}
             <div className="min-w-0 flex flex-1 flex-wrap items-baseline gap-x-2 gap-y-1 sm:gap-x-3">
               <h1 className="page-heading truncate text-base sm:text-lg">Contracts</h1>
+              {(searchCriteria || customViewId) && onClearSearchCriteria ?
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClearSearchCriteria();
+                    setPage(1);
+                  }}
+                  className="rounded-full border border-blue-500/40 bg-blue-500/10 px-2.5 py-0.5 text-xs font-medium text-blue-400 transition hover:bg-blue-500/20"
+                >
+                  Filtered · Clear
+                </button>
+              : null}
               <span className="text-sm text-crm-text-muted">
                 {loading ?
                   <InlineLoadingShimmer />
                 : <>
                     <span className="font-medium tabular-nums text-crm-text">{totalLabel}</span>
-                    {" total in CRM"}
+                    {totalSuffix}
                   </>
                 }
               </span>
