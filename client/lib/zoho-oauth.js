@@ -1,12 +1,16 @@
-// Credentials for Zoho OAuth
+// Credentials for Zoho OAuth (env vars override these defaults in development/production).
 
-export const ZOHO_ACCOUNTS_URL = "https://accounts.zoho.com";
+export const ZOHO_ACCOUNTS_URL =
+  process.env.ZOHO_ACCOUNTS_URL?.trim() || "https://accounts.zoho.com";
 
-export const ZOHO_CLIENT_ID = "1000.TP98XTZY6ND55UF99POR87TXHGL5IN";
+export const ZOHO_CLIENT_ID =
+  process.env.ZOHO_CLIENT_ID?.trim() || "1000.TP98XTZY6ND55UF99POR87TXHGL5IN";
 
-export const ZOHO_CLIENT_SECRET = "f9652b7dbde5870260bdbe9043b814d4662e20eb26";
+export const ZOHO_CLIENT_SECRET =
+  process.env.ZOHO_CLIENT_SECRET?.trim() || "f9652b7dbde5870260bdbe9043b814d4662e20eb26";
 
 export const ZOHO_REFRESH_TOKEN =
+  process.env.ZOHO_REFRESH_TOKEN?.trim() ||
   "1000.a215709b66f4ea5ee3c88e38dd418f5b.9e42469481094aa169153930892fd98c";
 
 const EXPIRY_BUFFER_MS = 5 * 60 * 1000;

@@ -15,6 +15,222 @@ export type CrmRecordSection = {
 
 export type RecordFieldRow = CrmFieldMeta & { value: string };
 
+export const CONTRACT_SIGNINGS_SECTION_ID = "contract-signings";
+export const CONTRACT_SIGNINGS_SECTION_TITLE = "Contract Signings";
+
+/** Fixed order for the Contract Signings block on record detail. */
+export const CONTRACT_SIGNINGS_FIELD_API_NAMES = [
+  "Client_Signed_Status",
+  "Client_Sign_Req_Id",
+  "Vendor_Signed_Status",
+  "Vendor_Sign_Req_Id",
+] as const;
+
+const CONTRACT_SIGNINGS_FIELD_SET = new Set<string>(CONTRACT_SIGNINGS_FIELD_API_NAMES);
+
+export function isContractSigningsFieldApiName(apiName: string): boolean {
+  const canonical = normalizeContractFieldApiName(apiName);
+  return CONTRACT_SIGNINGS_FIELD_SET.has(canonical);
+}
+
+/**
+ * Pull the four signing fields into a dedicated section (removes them from other sections).
+ * When `catalog` is provided, includes signing fields that exist in metadata but not on the Zoho layout.
+ */
+export function applyContractSigningsSection(
+  sections: CrmRecordSection[],
+  catalog?: CrmFieldMeta[],
+): CrmRecordSection[] {
+  const presentSlots = new Set<string>();
+
+  if (catalog?.length) {
+    for (const field of filterCatalogForRecordView(catalog)) {
+      if (isContractSigningsFieldApiName(field.apiName)) {
+        presentSlots.add(normalizeContractFieldApiName(field.apiName));
+      }
+    }
+  }
+
+  const stripped: CrmRecordSection[] = [];
+
+  for (const section of sections) {
+    const fieldApiNames: string[] = [];
+    for (const api of section.fieldApiNames) {
+      const canonical = normalizeContractFieldApiName(api);
+      if (isContractSigningsFieldApiName(canonical)) {
+        presentSlots.add(canonical);
+        continue;
+      }
+      fieldApiNames.push(api);
+    }
+
+    if (fieldApiNames.length === 0 && section.kind !== "subform") continue;
+
+    const isLegacySigningsSection =
+      section.id === "contract-signing" ||
+      section.id === CONTRACT_SIGNINGS_SECTION_ID ||
+      /^contract\s+signing(s)?$/i.test(section.title.trim());
+
+    stripped.push({
+      ...section,
+      fieldApiNames,
+      ...(isLegacySigningsSection ?
+        { id: section.id, title: section.title }
+      : {}),
+    });
+  }
+
+  const signingFields = CONTRACT_SIGNINGS_FIELD_API_NAMES.filter((api) => presentSlots.has(api));
+  if (signingFields.length === 0) return stripped;
+
+  const signingsSection: CrmRecordSection = {
+    id: CONTRACT_SIGNINGS_SECTION_ID,
+    title: CONTRACT_SIGNINGS_SECTION_TITLE,
+    fieldApiNames: [...signingFields],
+    kind: "fields",
+  };
+
+  const insertBeforeIds = new Set([
+    "scheduled",
+    "contract-signing",
+    CONTRACT_SIGNINGS_SECTION_ID,
+    "system",
+  ]);
+  let insertAt = stripped.length;
+  for (let i = 0; i < stripped.length; i++) {
+    const s = stripped[i];
+    if (insertBeforeIds.has(s.id) || /scheduled/i.test(s.title)) {
+      insertAt = i;
+      break;
+    }
+  }
+
+  const withoutDuplicateSignings = stripped.filter(
+    (s) =>
+      s.id !== CONTRACT_SIGNINGS_SECTION_ID &&
+      s.id !== "contract-signing" &&
+      !/^contract\s+signing(s)?$/i.test(s.title.trim()),
+  );
+
+  const result = [...withoutDuplicateSignings];
+  result.splice(insertAt, 0, signingsSection);
+  return result;
+}
+
+export const SCHEDULED_SECTION_ID = "scheduled";
+export const SCHEDULED_SECTION_TITLE = "Scheduled";
+export const SCHEDULED_SERVICE_TOGGLE_API_NAME = "Scheduled_Service";
+
+/** Fixed order for the Scheduled block on record detail (canonical API names). */
+export const SCHEDULED_FIELD_API_NAMES = [
+  "Scheduled_Service",
+  "Scheduling_Status",
+  "1st_Service_Scheduling_Deadline",
+  "1st_Service_Confirmed_Scheduled_Date",
+  "1st_Service_Completed_Date",
+  "2nd_Service_Scheduling_Deadline",
+  "2nd_Service_Confirmed_Scheduled_Date",
+  "2nd_Service_Completed_Date",
+  "3rd_Service_Scheduling_Deadline",
+  "3rd_Service_Confirmed_Scheduled_Date",
+  "3rd_Service_Completed_Date",
+  "Scheduled_Service_Notes",
+] as const;
+
+const SCHEDULED_FIELD_CANONICAL_SET = new Set<string>(SCHEDULED_FIELD_API_NAMES);
+
+export function isScheduledSectionFieldApiName(apiName: string): boolean {
+  const canonical = normalizeContractFieldApiName(apiName);
+  return SCHEDULED_FIELD_CANONICAL_SET.has(canonical);
+}
+
+/**
+ * Pull scheduled-service fields into a dedicated section (removes them from other sections).
+ * When `catalog` is provided, includes fields that exist in metadata but not on the Zoho layout.
+ */
+export function applyScheduledSection(
+  sections: CrmRecordSection[],
+  catalog?: CrmFieldMeta[],
+): CrmRecordSection[] {
+  const presentSlots = new Set<string>();
+
+  if (catalog?.length) {
+    for (const field of filterCatalogForRecordView(catalog)) {
+      if (isScheduledSectionFieldApiName(field.apiName)) {
+        presentSlots.add(normalizeContractFieldApiName(field.apiName));
+      }
+    }
+  }
+
+  const stripped: CrmRecordSection[] = [];
+
+  for (const section of sections) {
+    const fieldApiNames: string[] = [];
+    for (const api of section.fieldApiNames) {
+      const canonical = normalizeContractFieldApiName(api);
+      if (isScheduledSectionFieldApiName(canonical)) {
+        presentSlots.add(canonical);
+        continue;
+      }
+      fieldApiNames.push(api);
+    }
+
+    if (fieldApiNames.length === 0 && section.kind !== "subform") continue;
+
+    stripped.push({ ...section, fieldApiNames });
+  }
+
+  const scheduledFields = SCHEDULED_FIELD_API_NAMES.filter((api) => presentSlots.has(api));
+  if (scheduledFields.length === 0) return stripped;
+
+  const scheduledSection: CrmRecordSection = {
+    id: SCHEDULED_SECTION_ID,
+    title: SCHEDULED_SECTION_TITLE,
+    fieldApiNames: [...scheduledFields],
+    kind: "fields",
+  };
+
+  const insertBeforeIds = new Set(["system"]);
+  let insertAt = stripped.length;
+  for (let i = 0; i < stripped.length; i++) {
+    const s = stripped[i];
+    if (insertBeforeIds.has(s.id) || /^system$/i.test(s.title.trim())) {
+      insertAt = i;
+      break;
+    }
+  }
+
+  const withoutDuplicateScheduled = stripped.filter(
+    (s) =>
+      s.id !== SCHEDULED_SECTION_ID && !/^scheduled$/i.test(s.title.trim()),
+  );
+
+  const result = [...withoutDuplicateScheduled];
+  result.splice(insertAt, 0, scheduledSection);
+  return result;
+}
+
+export function finalizeRecordSections(
+  sections: CrmRecordSection[],
+  catalog?: CrmFieldMeta[],
+): CrmRecordSection[] {
+  return applyScheduledSection(applyContractSigningsSection(sections, catalog), catalog);
+}
+
+/** Rows visible in Scheduled; `showDetails` follows the interactive Scheduled Service toggle. */
+export function filterScheduledSectionRows(
+  rows: RecordFieldRow[],
+  showDetails: boolean,
+): RecordFieldRow[] {
+  const toggleCanonical = SCHEDULED_SERVICE_TOGGLE_API_NAME;
+
+  if (showDetails) return rows;
+
+  return rows.filter(
+    (row) => normalizeContractFieldApiName(row.apiName) === toggleCanonical,
+  );
+}
+
 const FALLBACK_SECTION_ORDER: { id: string; title: string; test: (apiName: string) => boolean }[] =
   [
     {
@@ -50,16 +266,14 @@ const FALLBACK_SECTION_ORDER: { id: string; title: string; test: (apiName: strin
         ) && !/Owner_Assignment/i.test(api),
     },
     {
-      id: "contract-signing",
-      title: "Contract Signing",
-      test: (api) => /(Signed|Signing|Signature|Docusign)/i.test(api),
+      id: CONTRACT_SIGNINGS_SECTION_ID,
+      title: CONTRACT_SIGNINGS_SECTION_TITLE,
+      test: (api) => isContractSigningsFieldApiName(api),
     },
     {
-      id: "scheduled",
-      title: "Scheduled",
-      test: (api) =>
-        /(Service_|Scheduling|Scheduled|Deadline|Confirmed)/i.test(api) &&
-        !/^Contract_/i.test(api),
+      id: SCHEDULED_SECTION_ID,
+      title: SCHEDULED_SECTION_TITLE,
+      test: (api) => isScheduledSectionFieldApiName(api),
     },
     {
       id: "system",
@@ -85,18 +299,38 @@ export function isDeletedFieldsLayoutSection(title: string): boolean {
   return normalized === "deleted fields" || /^deleted\s+field(s)?$/i.test(normalized);
 }
 
-function collectSectionFieldApiNames(
-  section: { fields?: { api_name?: string }[] },
-): string[] {
-  const fieldApiNames: string[] = [];
-  for (const field of section.fields ?? []) {
-    const api = field?.api_name?.trim();
-    if (!api || api === "id") continue;
+function collectSectionFieldApiNames(section: {
+  fields?: { api_name?: string; sequence_number?: number }[];
+  columns?: { fields?: { api_name?: string; sequence_number?: number }[] }[];
+}): string[] {
+  const ordered: { api: string; seq: number }[] = [];
+
+  const pushField = (raw: { api_name?: string; sequence_number?: number } | undefined) => {
+    const api = raw?.api_name?.trim();
+    if (!api || api === "id") return;
     const canonical = normalizeContractFieldApiName(api);
-    if (isExcludedContractFieldApiName(canonical)) continue;
-    if (!fieldApiNames.includes(canonical)) {
-      fieldApiNames.push(canonical);
+    if (isExcludedContractFieldApiName(canonical)) return;
+    ordered.push({
+      api: canonical,
+      seq: Number(raw?.sequence_number ?? ordered.length),
+    });
+  };
+
+  for (const field of section.fields ?? []) {
+    pushField(field);
+  }
+
+  for (const column of section.columns ?? []) {
+    for (const field of column.fields ?? []) {
+      pushField(field);
     }
+  }
+
+  ordered.sort((a, b) => a.seq - b.seq);
+
+  const fieldApiNames: string[] = [];
+  for (const { api } of ordered) {
+    if (!fieldApiNames.includes(api)) fieldApiNames.push(api);
   }
   return fieldApiNames;
 }
@@ -179,7 +413,10 @@ export function parseZohoLayout(layoutBody: unknown): ParsedZohoContractLayout |
 
   if (sections.length === 0 && droppedSectionFieldApiNames.length === 0) return null;
 
-  return { sections, droppedSectionFieldApiNames };
+  return {
+    sections: applyContractSigningsSection(sections),
+    droppedSectionFieldApiNames,
+  };
 }
 
 /** Parse Zoho layout API payload into ordered sections (Deleted Fields section omitted). */
@@ -235,7 +472,7 @@ export function buildFallbackRecordSections(catalog: CrmFieldMeta[]): CrmRecordS
     pushIfFields(rule.id);
   }
 
-  return ordered;
+  return finalizeRecordSections(ordered, catalog);
 }
 
 export function mergeSectionsWithCatalog(
@@ -244,6 +481,7 @@ export function mergeSectionsWithCatalog(
   getValue: (apiName: string) => string,
   options?: { droppedSectionFieldApiNames?: string[] },
 ): { section: CrmRecordSection; rows: RecordFieldRow[] }[] {
+  sections = finalizeRecordSections(sections, catalog);
   const dropped = new Set(
     (options?.droppedSectionFieldApiNames ?? []).map((name) =>
       normalizeContractFieldApiName(name),

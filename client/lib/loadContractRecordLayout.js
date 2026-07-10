@@ -1,5 +1,6 @@
 import { fetchZohoJson, getZohoModuleLayoutsUrl } from "@/lib/zoho";
 import {
+  finalizeRecordSections,
   buildFallbackRecordSections,
   parseZohoLayout,
 } from "@/lib/contractRecordLayout";
@@ -17,7 +18,7 @@ export async function loadContractsRecordSections(catalog) {
       const parsed = parseZohoLayout(body);
       if (parsed && (parsed.sections.length > 0 || parsed.droppedSectionFieldApiNames.length > 0)) {
         return {
-          sections: parsed.sections,
+          sections: finalizeRecordSections(parsed.sections, catalog),
           droppedSectionFieldApiNames: parsed.droppedSectionFieldApiNames,
           source: /** @type {const} */ ("zoho"),
         };
@@ -28,7 +29,7 @@ export async function loadContractsRecordSections(catalog) {
   }
 
   return {
-    sections: buildFallbackRecordSections(catalog),
+    sections: finalizeRecordSections(buildFallbackRecordSections(catalog), catalog),
     droppedSectionFieldApiNames: [],
     source: /** @type {const} */ ("fallback"),
   };

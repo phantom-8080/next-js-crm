@@ -374,11 +374,37 @@ export default function SideBar({
     hasCheckboxFilters || hasManualFilters || Boolean(selectedCustomViewId);
   const hasActiveFilter = Boolean(searchCriteria || customViewId || listFiltersActive);
 
+  const displaySections = useMemo(() => {
+    if (sections.length > 0) return sections;
+    if (fieldMeta.length === 0) return [];
+
+    const bySection = new Map<string, ContractFilterFieldMeta[]>();
+    for (const field of fieldMeta) {
+      const id = field.section ?? "fields";
+      const list = bySection.get(id) ?? [];
+      list.push(field);
+      bySection.set(id, list);
+    }
+
+    const titles: Record<string, string> = {
+      system_defined: "System Defined Filters",
+      fields: "Filter By Fields",
+      subforms: "Filter By Subforms",
+      related_modules: "Filter By Related Modules",
+    };
+
+    return [...bySection.entries()].map(([id, fields]) => ({
+      id: id as ContractFilterSection["id"],
+      title: titles[id] ?? id,
+      fields,
+    }));
+  }, [fieldMeta, sections]);
+
   const hasVisibleSections = useMemo(() => {
     const q = filterSearch.trim().toLowerCase();
-    if (sections.length === 0) return false;
+    if (displaySections.length === 0) return false;
     if (!q) return true;
-    return sections.some((section) =>
+    return displaySections.some((section) =>
       section.fields.some(
         (f) =>
           f.label.toLowerCase().includes(q) ||
@@ -387,7 +413,7 @@ export default function SideBar({
           f.options.some((o) => o.label.toLowerCase().includes(q)),
       ),
     );
-  }, [sections, filterSearch]);
+  }, [displaySections, filterSearch]);
 
   useEffect(() => {
     if (!open) return;
@@ -575,11 +601,11 @@ export default function SideBar({
               <FilterSidebarFieldsSkeleton rows={14} />
             : metaError ?
               <p className="px-2 py-4 text-sm text-red-400">{metaError}</p>
-            : sections.length === 0 ?
+            : displaySections.length === 0 ?
               <p className="px-2 py-4 text-sm text-crm-text-muted">No filter fields available.</p>
             : !hasVisibleSections ?
               <p className="px-2 py-4 text-sm text-crm-text-muted">No matching filter fields.</p>
-            : sections.map((section) => (
+            : displaySections.map((section) => (
                 <FilterSectionGroup
                   key={section.id}
                   section={section}

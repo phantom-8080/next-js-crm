@@ -1,4 +1,4 @@
-import { HIDDEN_API_NAMES } from "@/lib/contractModuleFields";
+import { HIDDEN_API_NAMES, loadContractsFieldCatalog } from "@/lib/contractModuleFields";
 import { isExcludedContractCatalogField } from "@/lib/contractColumns";
 import { getContractsOfflineFilterMeta } from "@/lib/contractStaticData";
 import { getOperatorsForDataType } from "@/lib/zohoFilterOperators";
@@ -114,6 +114,79 @@ function discoverSubformModules(moduleFields) {
   return subforms;
 }
 
+/**
+ * @param {import("@/lib/contractFilterTypes").ContractFilterFieldMeta[]} systemFields
+ * @param {import("@/lib/contractFilterTypes").ContractFilterFieldMeta[]} moduleFields
+ * @param {import("@/lib/contractFilterTypes").ContractFilterFieldMeta[]} subformFields
+ * @param {import("@/lib/contractFilterTypes").ContractFilterFieldMeta[]} relatedFields
+ */
+function assembleFilterMetaSections(systemFields, moduleFields, subformFields, relatedFields) {
+  const allFields = [...systemFields, ...moduleFields, ...subformFields, ...relatedFields];
+  /** @type {import("@/lib/contractFilterTypes").ContractFilterSection[]} */
+  const sections = FILTER_SECTION_ORDER.map((id) => ({
+    id,
+    title: FILTER_SECTION_TITLES[id],
+    fields:
+      id === "system_defined" ? systemFields
+      : id === "fields" ? moduleFields
+      : id === "subforms" ? subformFields
+      : relatedFields,
+  })).filter((section) => section.fields.length > 0);
+
+  return { sections, fields: allFields };
+}
+
+/** Build filter sidebar from Contracts field catalog (same source as manage columns). */
+async function buildContractsFilterMetaFromCatalog() {
+  const { fields: catalog } = await loadContractsFieldCatalog();
+
+  /** @type {import("@/lib/contractFilterTypes").ContractFilterFieldMeta[]} */
+  const moduleFields = [];
+  for (const field of catalog) {
+    if (isExcludedContractCatalogField(field)) continue;
+    const dataType = String(field.dataType ?? "text").toLowerCase();
+    if (dataType === "subform" || dataType === "image" || dataType === "profileimage") continue;
+
+    moduleFields.push({
+      apiName: field.apiName,
+      label: field.label,
+      dataType,
+      operators: getOperatorsForDataType(dataType),
+      options: [],
+      hasOptions: false,
+      section: /** @type {const} */ ("fields"),
+    });
+  }
+  moduleFields.sort((a, b) => a.label.localeCompare(b.label));
+
+  const systemFields = await loadSystemDefinedFilters("Contracts").catch((err) => {
+    console.error("Zoho custom views for filters failed:", err);
+    return [];
+  });
+
+  const { sections, fields } = assembleFilterMetaSections(
+    systemFields,
+    moduleFields,
+    [],
+    [],
+  );
+
+  if (fields.length === 0) {
+    return getContractsOfflineFilterMeta();
+  }
+
+  return { sections, fields, source: /** @type {const} */ ("fallback") };
+}
+
+async function resolveContractsFilterMetaFallback() {
+  try {
+    return await buildContractsFilterMetaFromCatalog();
+  } catch (err) {
+    console.error("Contracts catalog filter fallback failed:", err);
+    return getContractsOfflineFilterMeta();
+  }
+}
+
 /** @returns {Promise<import("@/lib/contractFilterTypes").ContractFilterFieldMeta[]>} */
 async function loadSystemDefinedFilters(module) {
   const url = `${ZOHO_CRM_BASE}/settings/custom_views?module=${encodeURIComponent(module)}`;
@@ -138,7 +211,11 @@ async function loadSystemDefinedFilters(module) {
 /** @returns {Promise<{ sections: import("@/lib/contractFilterTypes").ContractFilterSection[]; fields: import("@/lib/contractFilterTypes").ContractFilterFieldMeta[]; source: "zoho" | "fallback" }>} */
 export async function loadModuleFilterMeta(module) {
   const cached = filterMetaCacheByModule.get(module);
-  if (cached && Date.now() - cached.cachedAt < FILTER_META_CACHE_TTL_MS) {
+  if (
+    cached &&
+    Date.now() - cached.cachedAt < FILTER_META_CACHE_TTL_MS &&
+    cached.fields.length > 0
+  ) {
     return {
       sections: cached.sections,
       fields: cached.fields,
@@ -231,22 +308,28 @@ export async function loadModuleFilterMeta(module) {
 
     const allFields = [...systemFields, ...moduleFields, ...subformFields, ...relatedFields];
 
-    /** @type {import("@/lib/contractFilterTypes").ContractFilterSection[]} */
-    const sections = FILTER_SECTION_ORDER.map((id) => ({
-      id,
-      title: FILTER_SECTION_TITLES[id],
-      fields:
-        id === "system_defined" ? systemFields
-        : id === "fields" ? moduleFields
-        : id === "subforms" ? subformFields
-        : relatedFields,
-    })).filter((section) => section.fields.length > 0);
+    if (allFields.length === 0) {
+      throw new Error("No filterable fields from Zoho metadata");
+    }
 
-    const result = { sections, fields: allFields, source: /** @type {const} */ ("zoho") };
+    const { sections, fields } = assembleFilterMetaSections(
+      systemFields,
+      moduleFields,
+      subformFields,
+      relatedFields,
+    );
+
+    const result = { sections, fields, source: /** @type {const} */ ("zoho") };
     filterMetaCacheByModule.set(module, { ...result, cachedAt: Date.now() });
     return result;
   } catch (err) {
     console.error("Zoho filter metadata request failed:", err);
+  }
+
+  if (module === "Contracts") {
+    const fallback = await resolveContractsFilterMetaFallback();
+    filterMetaCacheByModule.set(module, { ...fallback, cachedAt: Date.now() });
+    return fallback;
   }
 
   const fallback = getContractsOfflineFilterMeta();

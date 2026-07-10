@@ -1,9 +1,16 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { CrmRecordSection, RecordFieldRow } from "@/lib/contractRecordLayout";
+import { isContractBooleanTrue, normalizeContractFieldApiName } from "@/lib/contractColumns";
+import {
+  filterScheduledSectionRows,
+  SCHEDULED_SECTION_ID,
+  SCHEDULED_SERVICE_TOGGLE_API_NAME,
+  type CrmRecordSection,
+  type RecordFieldRow,
+} from "@/lib/contractRecordLayout";
 import { isScopeOfWorkSubformSection } from "@/lib/contractScopeOfWork";
 import type { ContractScopeOfWorkRow } from "@/lib/contractScopeOfWork";
 import { ContractScopeOfWorkTable } from "@/components/ContractScopeOfWorkTable";
@@ -20,6 +27,65 @@ type ContractRecordSectionsProps = {
   scopeOfWorkByField?: Record<string, ContractScopeOfWorkRow[]>;
   renderFieldValue: (props: FieldValueRendererProps) => ReactNode;
 };
+
+function ScheduledSectionGrid({
+  rows,
+  renderFieldValue,
+}: {
+  rows: RecordFieldRow[];
+  renderFieldValue: (props: FieldValueRendererProps) => ReactNode;
+}) {
+  const toggleRow = useMemo(
+    () =>
+      rows.find(
+        (row) =>
+          normalizeContractFieldApiName(row.apiName) === SCHEDULED_SERVICE_TOGGLE_API_NAME,
+      ),
+    [rows],
+  );
+
+  const [scheduledServiceOn, setScheduledServiceOn] = useState(() =>
+    toggleRow ? isContractBooleanTrue(toggleRow.value) : false,
+  );
+
+  useEffect(() => {
+    setScheduledServiceOn(toggleRow ? isContractBooleanTrue(toggleRow.value) : false);
+  }, [toggleRow?.value, toggleRow?.apiName]);
+
+  const displayRows = filterScheduledSectionRows(rows, scheduledServiceOn);
+
+  return (
+    <dl className="grid gap-x-8 gap-y-5 sm:grid-cols-2 lg:grid-cols-3">
+      {displayRows.map((row) => {
+        const isToggle =
+          normalizeContractFieldApiName(row.apiName) === SCHEDULED_SERVICE_TOGGLE_API_NAME;
+
+        return (
+          <div key={row.apiName} className="min-w-0 border-b border-crm-border pb-4">
+            <dt className="record-field-label">{row.label}</dt>
+            <dd className="mt-1.5 min-w-0 text-sm">
+              {isToggle ?
+                <input
+                  type="checkbox"
+                  checked={scheduledServiceOn}
+                  onChange={(e) => setScheduledServiceOn(e.target.checked)}
+                  className="size-4 cursor-pointer rounded border-crm-border text-blue-500"
+                  aria-label={row.label}
+                />
+              : renderFieldValue({
+                  apiName: row.apiName,
+                  value: row.value,
+                  dataType: row.dataType,
+                  label: row.label,
+                })
+              }
+            </dd>
+          </div>
+        );
+      })}
+    </dl>
+  );
+}
 
 function RecordFieldGrid({
   rows,
@@ -109,6 +175,8 @@ export function ContractRecordSections({
           (isScopeOfWorkSubformSection(section.fieldApiNames) ||
             /scope of work/i.test(section.title));
 
+        const isScheduledSection = section.id === SCHEDULED_SECTION_ID;
+
         return (
         <RecordSectionBlock key={section.id} title={section.title}>
           {showScopeTable ?
@@ -117,6 +185,8 @@ export function ContractRecordSections({
             <p className="text-sm text-crm-text-muted">
               Subform data is not shown in this view yet.
             </p>
+          : isScheduledSection ?
+            <ScheduledSectionGrid rows={rows} renderFieldValue={renderFieldValue} />
           : <RecordFieldGrid rows={rows} renderFieldValue={renderFieldValue} />}
         </RecordSectionBlock>
         );

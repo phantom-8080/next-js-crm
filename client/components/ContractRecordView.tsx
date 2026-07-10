@@ -20,6 +20,7 @@ import {
   formatCellForDisplay,
   getContractFieldDisplayValue,
   isStatusField,
+  isContractBooleanTrue,
   isUrlLikeField,
   looksLikeHttpUrl,
 } from "@/lib/contractColumns";
@@ -64,6 +65,18 @@ function FieldValue({
   fieldLabel?: string;
 }) {
   const display = formatCellForDisplay(value, dataType);
+  if (dataType === "boolean" || apiName === "Scheduled_Service") {
+    const checked = isContractBooleanTrue(value || display);
+    return (
+      <input
+        type="checkbox"
+        readOnly
+        checked={checked}
+        className="size-4 rounded border-crm-border text-blue-500"
+        aria-label={fieldLabel ?? apiName}
+      />
+    );
+  }
   if (!display) return <span className="text-crm-text-muted">—</span>;
   if (isStatusField(apiName)) return <StatusBadge status={display} />;
 
@@ -248,6 +261,7 @@ export default function ContractRecordView({ id }: ContractRecordViewProps) {
           <ContractRecordLoader className="min-h-0 flex-1" />
         : contract ?
           <ContractRecordSections
+            key={contract.id}
             groups={sectionGroups}
             scopeOfWorkByField={scopeOfWorkByField}
             renderFieldValue={(props) => (

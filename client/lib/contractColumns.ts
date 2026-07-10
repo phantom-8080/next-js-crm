@@ -45,6 +45,8 @@ const EXCLUDED_CONTRACT_FIELD_API_NAMES = new Set([
   "Vendor_Contract",
   "Client_Addendum_old",
   "Client_Addendum_Old",
+  "Vendor_Addendum_old",
+  "Vendor_Addendum_Old",
   "Hide_Unsubscribe_Time",
   "Unsubscribe_Mode",
   "Unsubscribed_Mode",
@@ -55,12 +57,15 @@ const EXCLUDED_CONTRACT_FIELD_API_NAMES = new Set([
   "Sales_Orders_Books_Id",
   "Sales_Order_Books_ID",
   "Sales_Order_Books_Id",
+  "Number_of_Locations_Open_For_Bid_Olio",
 ]);
 
 const EXCLUDED_CONTRACT_FIELD_LABELS = new Set([
   "vendor contract",
   "client addendum -old",
   "client addendum old",
+  "vendor addendum -old",
+  "vendor addendum old",
   "hide unsubscribe time",
   "unsubscribe mode",
   "unsubscribed mode",
@@ -68,6 +73,7 @@ const EXCLUDED_CONTRACT_FIELD_LABELS = new Set([
   "sales order id",
   "sales orders books id",
   "sales order books id",
+  "number of locations open for bid (olio)",
 ]);
 
 export function isExcludedContractFieldApiName(
@@ -83,6 +89,7 @@ export function isExcludedContractFieldApiName(
   if (EXCLUDED_CONTRACT_FIELD_LABELS.has(normalizedLabel)) return true;
 
   if (/client.*addendum.*old/i.test(canonical)) return true;
+  if (/vendor.*addendum.*old/i.test(canonical)) return true;
   if (/^hide_.*unsubscribe.*time$/i.test(canonical)) return true;
   if (/^unsubscrib(e|ed)_(mode|time)$/i.test(canonical)) return true;
   if (/^sales_order_id$/i.test(canonical)) return true;
@@ -326,6 +333,12 @@ export function formatCellForDisplay(value: unknown, dataType?: string): string 
 
 export function isStatusField(apiName: string) {
   return apiName === "Contract_Status" || apiName === "Record_Status";
+}
+
+/** Zoho / UI boolean values (record detail, filters). */
+export function isContractBooleanTrue(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  return normalized === "true" || normalized === "yes" || normalized === "1" || normalized === "on";
 }
 
 export function isDateLikeField(apiName: string, dataType?: string) {
