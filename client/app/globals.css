@@ -147,13 +147,13 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
-    }
+  }
   body {
     @apply bg-crm-canvas text-crm-text;
-    }
+  }
   html {
     @apply font-sans;
-    }
+  }
 }
 
 @keyframes table-shimmer-sweep {
@@ -163,6 +163,10 @@
   100% {
     transform: translateX(320%);
   }
+}
+
+.table-shimmer-sweep {
+  animation: table-shimmer-sweep 1.6s ease-in-out infinite;
 }
 
 @keyframes contracts-loader-fade-in {
@@ -176,13 +180,9 @@
   }
 }
 
-.table-shimmer-sweep {
-  animation: table-shimmer-sweep 1.6s ease-in-out infinite;
-}
-
 .contracts-table-scroll {
-  overflow-x: auto;
-  overflow-y: auto;
+  overflow: auto;
+  scrollbar-gutter: stable;
   scrollbar-width: thin;
   scrollbar-color: var(--crm-scrollbar-thumb) var(--crm-scrollbar-track);
 }
@@ -205,14 +205,50 @@
   background: color-mix(in srgb, var(--crm-scrollbar-thumb) 80%, var(--crm-text) 20%);
 }
 
-.contracts-table-header-scroll {
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
+.contracts-table-scroll thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  height: 2.75rem;
+  max-height: 2.75rem;
+  border-bottom-width: 0 !important;
+  vertical-align: middle;
+  overflow: visible;
+  background: var(--crm-panel) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--crm-border) 86%, #818cf8 14%),
+    0 1px 0 var(--crm-border);
 }
 
-.contracts-table-header-scroll::-webkit-scrollbar {
-  display: none;
+.dark .contracts-table-scroll thead th {
+  background: var(--crm-table-head) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--crm-border) 92%, #6366f1 8%),
+    0 1px 0 var(--crm-border);
+}
+
+.contracts-table-scroll [data-slot=table-cell] {
+  border-right-width: 0;
+}
+
+.crm-col-header-divider {
+  pointer-events: none;
+  position: absolute;
+  top: 22%;
+  bottom: 22%;
+  right: 0;
+  z-index: 1;
+  width: 1px;
+  background: color-mix(in srgb, var(--crm-text-muted) 42%, var(--crm-border) 58%);
+}
+
+.contracts-table-scroll thead .crm-col-resize-handle {
+  -webkit-tap-highlight-color: transparent;
+}
+
+body.crm-col-resizing {
+  cursor: col-resize !important;
+  user-select: none;
 }
 
 .contracts-table-loader tr {

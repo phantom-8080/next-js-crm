@@ -1,19 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { Menu } from "lucide-react";
 import {
-  Table,
   TableBody,
   TableCell,
-  TableHead,
-  TableHeader,
   TableRow,
 } from "@/components/ui/table";
 import { ContractsCardsLoader, ContractsTableLoader } from "@/components/ContractsTableLoader";
+import { ListTable } from "@/components/ListTable";
+import { ResizableTableHeadCell } from "@/components/ResizableTableHeadCell";
 import { InlineLoadingShimmer, PaginationLoadingShimmer } from "@/components/LoadingShimmer";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { Button } from "@/components/ui/button";
+import { useResizableColumnWidths } from "@/hooks/useResizableColumnWidths";
 import { cn } from "@/lib/utils";
 import { formatCellForDisplay, isDateLikeField } from "@/lib/contractColumns";
 import { labelForBidsField, BIDS_LIST_FIELDS } from "@/lib/bidsConfig";
@@ -82,11 +82,6 @@ function getColumnWidthPx(col: { apiName: string; dataType?: string }) {
   return 168;
 }
 
-function columnSizeStyle(col: { apiName: string }): CSSProperties {
-  const width = getColumnWidthPx(col);
-  return { width, minWidth: width, maxWidth: width };
-}
-
 function getColumnCellClass(
   col: { apiName: string },
   index: number,
@@ -96,7 +91,7 @@ function getColumnCellClass(
 
   if (variant === "head") {
     return cn(
-      "column-heading overflow-hidden border-b border-crm-border bg-crm-table-head py-3",
+      "column-heading overflow-visible",
       isFirst ? "pl-6 pr-3" : "px-3",
     );
   }
@@ -279,13 +274,10 @@ export default function BidsTable({
 
   const colCount = Math.max(1, columnMeta.length);
 
-  const tableMinWidthPx = useMemo(
-    () =>
-      Math.max(
-        640,
-        columnMeta.reduce((sum, col) => sum + getColumnWidthPx(col), 0),
-      ),
-    [columnMeta],
+  const { columnSizeStyle, tableMinWidthPx, beginColumnResize } = useResizableColumnWidths(
+    "crm-column-widths-bids-v1",
+    columnMeta,
+    getColumnWidthPx,
   );
 
   const tableWidthStyle = useMemo(
@@ -296,38 +288,18 @@ export default function BidsTable({
     [tableMinWidthPx],
   );
 
-  const headerScrollRef = useRef<HTMLDivElement>(null);
-  const bodyScrollRef = useRef<HTMLDivElement>(null);
-  const scrollSyncLock = useRef(false);
-
-  const syncHorizontalScroll = useCallback((source: "header" | "body") => {
-    if (scrollSyncLock.current) return;
-    const header = headerScrollRef.current;
-    const body = bodyScrollRef.current;
-    if (!header || !body) return;
-
-    scrollSyncLock.current = true;
-    if (source === "body") {
-      header.scrollLeft = body.scrollLeft;
-    } else {
-      body.scrollLeft = header.scrollLeft;
-    }
-    requestAnimationFrame(() => {
-      scrollSyncLock.current = false;
-    });
-  }, []);
-
   function renderTableHeadRow() {
     return (
       <TableRow className="border-crm-border hover:bg-transparent">
         {columnMeta.map((col, i) => (
-          <TableHead
+          <ResizableTableHeadCell
             key={col.apiName}
             className={getColumnCellClass(col, i, "head")}
             style={columnSizeStyle(col)}
-          >
-            <span className="block truncate">{col.label}</span>
-          </TableHead>
+            label={col.label}
+            showDivider={i < columnMeta.length - 1}
+            onResizeStart={(clientX) => beginColumnResize(col.apiName, clientX, col)}
+          />
         ))}
       </TableRow>
     );
@@ -388,28 +360,18 @@ export default function BidsTable({
           <>
             <ContractsCardsLoader />
             <div className="hidden min-h-0 flex-1 flex-col md:flex">
-              <div
-                ref={headerScrollRef}
-                className="contracts-table-header-scroll shrink-0 border-b border-crm-border bg-crm-table-head"
-                onScroll={() => syncHorizontalScroll("header")}
+              <ListTable
+                tableWidthStyle={tableWidthStyle}
+                columns={columnMeta}
+                columnSizeStyle={columnSizeStyle}
+                headerRow={renderTableHeadRow()}
               >
-                <Table className="table-fixed" style={tableWidthStyle}>
-                  <TableHeader>{renderTableHeadRow()}</TableHeader>
-                </Table>
-              </div>
-              <div
-                ref={bodyScrollRef}
-                className="contracts-table-scroll min-h-0 flex-1 overscroll-contain"
-                onScroll={() => syncHorizontalScroll("body")}
-              >
-                <Table className="table-fixed" style={tableWidthStyle}>
-                  <ContractsTableLoader
-                    columns={columnMeta}
-                    getCellClassName={(col, i) => getColumnCellClass(col, i, "body")}
-                    getCellStyle={(col) => columnSizeStyle(col)}
-                  />
-                </Table>
-              </div>
+                <ContractsTableLoader
+                  columns={columnMeta}
+                  getCellClassName={(col, i) => getColumnCellClass(col, i, "body")}
+                  getCellStyle={(col) => columnSizeStyle(col)}
+                />
+              </ListTable>
             </div>
           </>
         : <>
@@ -424,22 +386,13 @@ export default function BidsTable({
               }
             </div>
             <div className="hidden min-h-0 flex-1 flex-col md:flex">
-              <div
-                ref={headerScrollRef}
-                className="contracts-table-header-scroll shrink-0 border-b border-crm-border bg-crm-table-head"
-                onScroll={() => syncHorizontalScroll("header")}
+              <ListTable
+                tableWidthStyle={tableWidthStyle}
+                columns={columnMeta}
+                columnSizeStyle={columnSizeStyle}
+                headerRow={renderTableHeadRow()}
               >
-                <Table className="table-fixed" style={tableWidthStyle}>
-                  <TableHeader>{renderTableHeadRow()}</TableHeader>
-                </Table>
-              </div>
-              <div
-                ref={bodyScrollRef}
-                className="contracts-table-scroll min-h-0 flex-1 overscroll-contain"
-                onScroll={() => syncHorizontalScroll("body")}
-              >
-                <Table className="table-fixed" style={tableWidthStyle}>
-                  <TableBody>
+                <TableBody>
                     {records.length === 0 ?
                       <TableRow className="border-crm-border hover:bg-transparent">
                         <TableCell
@@ -480,8 +433,7 @@ export default function BidsTable({
                       ))
                     }
                   </TableBody>
-                </Table>
-              </div>
+              </ListTable>
             </div>
           </>
         }
