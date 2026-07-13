@@ -40,6 +40,7 @@ export default function BidsPage() {
           applyLoading={recordsLoading}
           onApplyFilters={handleApplyFilters}
           filtersApiUrl="/api/bids/filters"
+          zohoModule="Bids"
           filterPanelId="bids-filters"
           filterAriaLabel="Bid filters"
         />

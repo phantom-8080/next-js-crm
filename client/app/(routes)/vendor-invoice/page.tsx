@@ -40,6 +40,7 @@ export default function VendorInvoicePage() {
           applyLoading={recordsLoading}
           onApplyFilters={handleApplyFilters}
           filtersApiUrl="/api/vendor-invoice/filters"
+          zohoModule="Vendor_Invoices"
           filterPanelId="vendor-invoice-filters"
           filterAriaLabel="Vendor invoice filters"
         />

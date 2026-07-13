@@ -21,11 +21,12 @@ export function getZohoModuleLayoutsUrl(module = ZOHO_CRM_MODULE_CONTRACTS) {
 /** Search records with criteria — CRM v3 (requires ZohoSearch.securesearch.READ) */
 export function getZohoModuleSearchUrl(
   module = ZOHO_CRM_MODULE_CONTRACTS,
-  { criteria, fields, page = 1, perPage = 100 } = {},
+  { criteria, fields, page = 1, perPage = 100, word } = {},
 ) {
   const params = new URLSearchParams();
   if (criteria) params.set("criteria", criteria);
   if (fields) params.set("fields", fields);
+  if (word) params.set("word", String(word));
   params.set("page", String(page));
   params.set("per_page", String(perPage));
   return `${ZOHO_CRM_BASE}/${encodeURIComponent(module)}/search?${params.toString()}`;

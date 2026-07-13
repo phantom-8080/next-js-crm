@@ -1,13 +1,27 @@
 import { HIDDEN_API_NAMES, loadContractsFieldCatalog } from "@/lib/contractModuleFields";
 import { isExcludedContractCatalogField } from "@/lib/contractColumns";
 import { getContractsOfflineFilterMeta } from "@/lib/contractStaticData";
+import { getKnownLookupFieldConfig } from "@/lib/resolveFilterValues";
 import { getOperatorsForDataType } from "@/lib/zohoFilterOperators";
-import { fetchZohoJson, getZohoModuleFieldsUrl, ZOHO_CRM_BASE } from "@/lib/zoho";
+import {
+  fetchZohoJson,
+  getZohoModuleFieldsUrl,
+  getZohoModuleLayoutsUrl,
+  ZOHO_CRM_BASE,
+} from "@/lib/zoho";
 
 const FILTER_META_CACHE_TTL_MS = 5 * 60 * 1000;
 
 /** @type {Map<string, { sections: import("@/lib/contractFilterTypes").ContractFilterSection[]; fields: import("@/lib/contractFilterTypes").ContractFilterFieldMeta[]; source: "zoho" | "fallback" | "offline-demo"; cachedAt: number }>} */
 const filterMetaCacheByModule = new Map();
+
+/** Clear cached filter metadata (e.g. after layout/option mapping changes). */
+export function clearFilterMetaCache() {
+  filterMetaCacheByModule.clear();
+}
+
+// Bust in-memory layout/option cache whenever this module is reloaded (dev HMR / deploy).
+clearFilterMetaCache();
 
 const RELATED_LOOKUP_TYPES = new Set([
   "lookup",
@@ -34,6 +48,39 @@ export const FILTER_SECTION_TITLES = {
 };
 
 /**
+ * @param {unknown} candidate
+ * @returns {string | undefined}
+ */
+function moduleApiFromLookupCandidate(candidate) {
+  if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+  if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
+    const obj = /** @type {Record<string, unknown>} */ (candidate);
+    for (const key of ["api_name", "module", "name"]) {
+      const value = obj[key];
+      if (typeof value === "string" && value.trim()) return value.trim();
+    }
+  }
+  return undefined;
+}
+
+/**
+ * @param {Record<string, unknown>} layout
+ * @returns {import("@/lib/contractFilterTypes").ContractFilterOption | null}
+ */
+function mapLayoutOption(layout) {
+  const id = layout.id != null ? String(layout.id).trim() : "";
+  const label = String(
+    layout.display_label ?? layout.name ?? layout.display_value ?? id,
+  ).trim();
+  if (!id && !label) return null;
+  // Zoho search criteria for Layout expects the layout id when available.
+  return {
+    value: id || label,
+    label: label || id,
+  };
+}
+
+/**
  * @param {Record<string, unknown>} field
  * @returns {import("@/lib/contractFilterTypes").ContractFilterOption[]}
  */
@@ -41,10 +88,13 @@ function mapPickListOptions(field) {
   const dataType = String(field.data_type ?? "text").toLowerCase();
 
   if (dataType === "layout" && Array.isArray(field.layouts)) {
-    return field.layouts.map((layout) => ({
-      value: layout.name,
-      label: layout.name,
-    }));
+    return field.layouts
+      .map((layout) =>
+        layout && typeof layout === "object" ?
+          mapLayoutOption(/** @type {Record<string, unknown>} */ (layout))
+        : null,
+      )
+      .filter(Boolean);
   }
 
   if (dataType === "boolean") {
@@ -65,6 +115,91 @@ function mapPickListOptions(field) {
 }
 
 /**
+ * Load every module layout (Vendor, Client-Site, …) — field metadata often only has one.
+ * @param {string} module
+ * @returns {Promise<import("@/lib/contractFilterTypes").ContractFilterOption[]>}
+ */
+async function loadModuleLayoutOptions(module) {
+  const { res, body } = await fetchZohoJson(getZohoModuleLayoutsUrl(module));
+  if (!res.ok || !Array.isArray(body.layouts)) return [];
+
+  /** @type {Map<string, import("@/lib/contractFilterTypes").ContractFilterOption>} */
+  const byValue = new Map();
+
+  for (const raw of body.layouts) {
+    if (!raw || typeof raw !== "object") continue;
+    const layout = /** @type {Record<string, unknown>} */ (raw);
+    const status = String(layout.status ?? "").toLowerCase();
+    if (status === "deleted" || status === "-1") continue;
+
+    const option = mapLayoutOption(layout);
+    if (!option) continue;
+    if (!byValue.has(option.value)) byValue.set(option.value, option);
+  }
+
+  return [...byValue.values()].sort((a, b) => a.label.localeCompare(b.label));
+}
+
+/**
+ * @param {import("@/lib/contractFilterTypes").ContractFilterFieldMeta[]} fields
+ * @param {import("@/lib/contractFilterTypes").ContractFilterOption[]} layoutOptions
+ */
+/**
+ * Layouts that should not appear in filter checkboxes (e.g. Fleet).
+ * @param {import("@/lib/contractFilterTypes").ContractFilterOption} option
+ */
+function isHiddenLayoutFilterOption(option) {
+  const label = String(option?.label ?? "").trim().toLowerCase();
+  return label === "fleet";
+}
+
+/**
+ * @param {import("@/lib/contractFilterTypes").ContractFilterFieldMeta[]} fields
+ * @param {import("@/lib/contractFilterTypes").ContractFilterOption[]} layoutOptions
+ */
+function applyLayoutOptionsToFields(fields, layoutOptions) {
+  const visible = layoutOptions.filter((opt) => !isHiddenLayoutFilterOption(opt));
+  if (!visible.length) return;
+  for (const field of fields) {
+    if (field.dataType === "layout" || field.apiName === "Layout" || field.apiName?.endsWith(".Layout")) {
+      field.options = visible;
+      field.hasOptions = true;
+    }
+  }
+}
+
+/**
+ * @param {Record<string, unknown>} field
+ * @returns {string | undefined}
+ */
+function extractLookupModule(field) {
+  const dataType = String(field.data_type ?? "").toLowerCase();
+  if (!RELATED_LOOKUP_TYPES.has(dataType)) return undefined;
+
+  const lookup = field.lookup && typeof field.lookup === "object" ? field.lookup : null;
+  const associated =
+    field.associated_module && typeof field.associated_module === "object" ?
+      field.associated_module
+    : null;
+
+  const candidates = [
+    lookup && /** @type {Record<string, unknown>} */ (lookup).module,
+    lookup && /** @type {Record<string, unknown>} */ (lookup).api_name,
+    associated && /** @type {Record<string, unknown>} */ (associated).module,
+    associated && /** @type {Record<string, unknown>} */ (associated).api_name,
+  ];
+
+  for (const candidate of candidates) {
+    const moduleApi = moduleApiFromLookupCandidate(candidate);
+    if (moduleApi) return moduleApi;
+  }
+
+  const known = getKnownLookupFieldConfig(String(field.api_name ?? ""));
+  if (known?.kind === "lookup" && known.module) return known.module;
+  return undefined;
+}
+
+/**
  * @param {Record<string, unknown>} field
  * @param {import("@/lib/contractFilterTypes").ContractFilterSectionId} section
  * @param {{ groupLabel?: string; customViewId?: string }} [extra]
@@ -76,8 +211,19 @@ function mapFilterField(field, section, extra = {}) {
   if (HIDDEN_API_NAMES.has(apiName) || apiName === "id") return null;
   if (field.filterable === false) return null;
 
+  // Prefer the Site lookup (Accounts) over the unused Site_Name text field.
   const dataType = String(field.data_type ?? "text").toLowerCase();
+  if (apiName === "Site_Name" && !RELATED_LOOKUP_TYPES.has(dataType)) {
+    return null;
+  }
+  // Ops_Owner (multi-user) is not searchable; filter UI keeps "Ops Owner" and maps
+  // criteria to Operations_Manager — hide the duplicate Operations Manager filter.
+  if (apiName === "Operations_Manager") {
+    return null;
+  }
+
   const options = mapPickListOptions(field);
+  const lookupModule = extractLookupModule(field);
 
   return {
     apiName,
@@ -89,7 +235,19 @@ function mapFilterField(field, section, extra = {}) {
     section,
     groupLabel: extra.groupLabel,
     customViewId: extra.customViewId,
+    ...(lookupModule ? { lookupModule } : {}),
   };
+}
+
+/**
+ * Prefer clearer filter labels for known Contracts fields.
+ * @param {import("@/lib/contractFilterTypes").ContractFilterFieldMeta} field
+ */
+function applyContractsFilterLabelOverrides(field) {
+  if (field.apiName === "Site") {
+    field.label = "Site Name";
+  }
+  return field;
 }
 
 function isRelatedModuleField(field) {
@@ -147,15 +305,19 @@ async function buildContractsFilterMetaFromCatalog() {
     const dataType = String(field.dataType ?? "text").toLowerCase();
     if (dataType === "subform" || dataType === "image" || dataType === "profileimage") continue;
 
-    moduleFields.push({
-      apiName: field.apiName,
-      label: field.label,
-      dataType,
-      operators: getOperatorsForDataType(dataType),
-      options: [],
-      hasOptions: false,
-      section: /** @type {const} */ ("fields"),
-    });
+    const knownLookup = getKnownLookupFieldConfig(field.apiName);
+    moduleFields.push(
+      applyContractsFilterLabelOverrides({
+        apiName: field.apiName,
+        label: field.label,
+        dataType,
+        operators: getOperatorsForDataType(dataType),
+        options: [],
+        hasOptions: false,
+        section: /** @type {const} */ ("fields"),
+        ...(knownLookup?.module ? { lookupModule: knownLookup.module } : {}),
+      }),
+    );
   }
   moduleFields.sort((a, b) => a.label.localeCompare(b.label));
 
@@ -163,6 +325,12 @@ async function buildContractsFilterMetaFromCatalog() {
     console.error("Zoho custom views for filters failed:", err);
     return [];
   });
+
+  const layoutOptions = await loadModuleLayoutOptions("Contracts").catch((err) => {
+    console.error("Zoho layouts for filter options failed (Contracts catalog fallback):", err);
+    return /** @type {import("@/lib/contractFilterTypes").ContractFilterOption[]} */ ([]);
+  });
+  applyLayoutOptionsToFields(moduleFields, layoutOptions);
 
   const { sections, fields } = assembleFilterMetaSections(
     systemFields,
@@ -255,7 +423,7 @@ export async function loadModuleFilterMeta(module) {
           continue;
         }
         const mapped = mapFilterField(raw, "related_modules");
-        if (mapped) relatedFields.push(mapped);
+        if (mapped) relatedFields.push(applyContractsFilterLabelOverrides(mapped));
       } else if (String(raw.data_type ?? "").toLowerCase() === "subform") {
         continue;
       } else {
@@ -270,7 +438,7 @@ export async function loadModuleFilterMeta(module) {
           continue;
         }
         const mapped = mapFilterField(raw, "fields");
-        if (mapped) moduleFields.push(mapped);
+        if (mapped) moduleFields.push(applyContractsFilterLabelOverrides(mapped));
       }
     }
 
@@ -305,6 +473,14 @@ export async function loadModuleFilterMeta(module) {
       const g = (a.groupLabel ?? "").localeCompare(b.groupLabel ?? "");
       return g !== 0 ? g : a.label.localeCompare(b.label);
     });
+
+    const layoutOptions = await loadModuleLayoutOptions(module).catch((err) => {
+      console.error(`Zoho layouts for filter options failed (${module}):`, err);
+      return /** @type {import("@/lib/contractFilterTypes").ContractFilterOption[]} */ ([]);
+    });
+    applyLayoutOptionsToFields(moduleFields, layoutOptions);
+    applyLayoutOptionsToFields(relatedFields, layoutOptions);
+    applyLayoutOptionsToFields(subformFields, layoutOptions);
 
     const allFields = [...systemFields, ...moduleFields, ...subformFields, ...relatedFields];
 

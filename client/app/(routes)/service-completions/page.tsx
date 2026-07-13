@@ -40,6 +40,7 @@ export default function ServiceCompletionsPage() {
           applyLoading={recordsLoading}
           onApplyFilters={handleApplyFilters}
           filtersApiUrl="/api/service-completions/filters"
+          zohoModule="ServiceCompletions"
           filterPanelId="service-completions-filters"
           filterAriaLabel="Service completion filters"
         />

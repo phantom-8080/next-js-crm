@@ -54,6 +54,7 @@ export default function ContractsPage() {
           filteredTotal={filteredTotal}
           applyLoading={contractsLoading}
           onApplyFilters={handleApplyFilters}
+          zohoModule="Contracts"
           listFiltersActive={offlineDemo && listFiltersActive}
         />
         <ContractsTable

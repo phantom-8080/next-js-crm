@@ -40,6 +40,7 @@ export default function VendorsPage() {
           applyLoading={recordsLoading}
           onApplyFilters={handleApplyFilters}
           filtersApiUrl="/api/vendors/filters"
+          zohoModule="Vendors"
           filterPanelId="vendors-filters"
           filterAriaLabel="Vendor filters"
         />

@@ -40,6 +40,7 @@ export default function SowPage() {
           applyLoading={recordsLoading}
           onApplyFilters={handleApplyFilters}
           filtersApiUrl="/api/sow/filters"
+          zohoModule="Deals"
           filterPanelId="sow-filters"
           filterAriaLabel="SOW filters"
         />

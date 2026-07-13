@@ -26,6 +26,8 @@ export type ContractFilterFieldMeta = {
   groupLabel?: string;
   /** Zoho custom view id for system-defined list filters. */
   customViewId?: string;
+  /** Related Zoho module API name for lookup fields (suggestions). */
+  lookupModule?: string;
 };
 
 export type ContractFilterSection = {

@@ -106,6 +106,16 @@ const OPERATORS_BY_DATA_TYPE = {
     { id: "not_equal", label: "is not" },
     { id: "in", label: "is any of" },
   ],
+  userlookup: [
+    { id: "equals", label: "is" },
+    { id: "not_equal", label: "is not" },
+    { id: "in", label: "is any of" },
+  ],
+  multiuserlookup: [
+    { id: "equals", label: "is" },
+    { id: "not_equal", label: "is not" },
+    { id: "in", label: "is any of" },
+  ],
   lookup: [
     { id: "equals", label: "is" },
     { id: "not_equal", label: "is not" },

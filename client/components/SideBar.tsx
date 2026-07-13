@@ -8,10 +8,18 @@ import {
   buildCriteriaFromFieldFilters,
   selectionsFromCheckboxState,
 } from "@/lib/buildContractFilterCriteria";
+import {
+  criteriaApiNameForFilterField,
+  getKnownLookupFieldConfig,
+  isLookupLikeDataType,
+  isUserLikeDataType,
+  looksLikeZohoId,
+} from "@/lib/resolveFilterValues";
 import type {
   ContractFieldFilterSelection,
   ContractFilterApplyPayload,
   ContractFilterFieldMeta,
+  ContractFilterOption,
   ContractFilterSection,
 } from "@/lib/contractFilterTypes";
 
@@ -43,6 +51,7 @@ function FilterSectionGroup({
   fieldSelections,
   manualDrafts,
   selectedCustomViewId,
+  zohoModule,
   onToggleFieldValue,
   onManualChange,
   getManualDraft,
@@ -53,6 +62,7 @@ function FilterSectionGroup({
   fieldSelections: Map<string, Set<string>>;
   manualDrafts: Map<string, ManualFilterDraft>;
   selectedCustomViewId: string | null;
+  zohoModule: string;
   onToggleFieldValue: (apiName: string, value: string) => void;
   onManualChange: (apiName: string, field: ContractFilterFieldMeta, patch: Partial<ManualFilterDraft>) => void;
   getManualDraft: (apiName: string, field: ContractFilterFieldMeta) => ManualFilterDraft;
@@ -116,6 +126,7 @@ function FilterSectionGroup({
                   : null}
                   <FieldFilterSection
                     field={field}
+                    zohoModule={zohoModule}
                     selectedValues={fieldSelections.get(field.apiName) ?? new Set()}
                     onToggleValue={(value) => onToggleFieldValue(field.apiName, value)}
                     manualDraft={getManualDraft(field.apiName, field)}
@@ -135,6 +146,8 @@ type ManualFilterDraft = {
   operator: string;
   value: string;
   value2: string;
+  /** Display name when `value` is a Zoho lookup/user id. */
+  displayLabel?: string;
 };
 
 function defaultOperator(field: ContractFilterFieldMeta) {
@@ -145,14 +158,176 @@ function isDateType(dataType: string) {
   return dataType === "date" || dataType === "datetime";
 }
 
+function fieldUsesIdSuggestions(field: ContractFilterFieldMeta) {
+  const known = getKnownLookupFieldConfig(field.apiName);
+  return (
+    isLookupLikeDataType(field.dataType) ||
+    isUserLikeDataType(field.dataType) ||
+    known?.kind === "user" ||
+    known?.kind === "lookup" ||
+    Boolean(field.lookupModule)
+  );
+}
+
+function FilterValueSuggestionInput({
+  field,
+  zohoModule,
+  value,
+  displayLabel,
+  onChange,
+  placeholder,
+}: {
+  field: ContractFilterFieldMeta;
+  zohoModule: string;
+  value: string;
+  displayLabel?: string;
+  onChange: (patch: Pick<ManualFilterDraft, "value" | "displayLabel">) => void;
+  placeholder: string;
+}) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [suggestions, setSuggestions] = useState<ContractFilterOption[]>([]);
+  const [inputText, setInputText] = useState(() => displayLabel || value);
+
+  useEffect(() => {
+    setInputText(displayLabel || value);
+  }, [displayLabel, value]);
+
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+
+    function onDocPointerDown(e: MouseEvent) {
+      if (!wrapRef.current?.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", onDocPointerDown);
+    return () => document.removeEventListener("mousedown", onDocPointerDown);
+  }, [open]);
+
+  function fetchSuggestions(q: string) {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setLoading(true);
+
+    const params = new URLSearchParams({
+      module: zohoModule,
+      field: field.apiName,
+      q,
+      dataType: field.dataType,
+    });
+    if (field.lookupModule) params.set("lookupModule", field.lookupModule);
+
+    void fetch(`/api/field-suggestions?${params.toString()}`, { signal: controller.signal })
+      .then(async (res) => {
+        const data = (await res.json()) as {
+          suggestions?: ContractFilterOption[];
+        };
+        if (controller.signal.aborted) return;
+        setSuggestions(Array.isArray(data.suggestions) ? data.suggestions : []);
+      })
+      .catch((err) => {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (!controller.signal.aborted) setSuggestions([]);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+  }
+
+  function scheduleFetch(q: string) {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => fetchSuggestions(q), 250);
+  }
+
+  function handleFocus() {
+    setOpen(true);
+    fetchSuggestions(inputText.trim());
+  }
+
+  function handleChange(next: string) {
+    setInputText(next);
+    setOpen(true);
+    const useIds = fieldUsesIdSuggestions(field);
+    if (useIds && looksLikeZohoId(value) && displayLabel && next === displayLabel) {
+      onChange({ value, displayLabel });
+    } else {
+      onChange({ value: next, displayLabel: undefined });
+    }
+    scheduleFetch(next.trim());
+  }
+
+  function handleSelect(opt: ContractFilterOption) {
+    const useIds = fieldUsesIdSuggestions(field);
+    setInputText(opt.label);
+    setOpen(false);
+    if (useIds && opt.value !== opt.label) {
+      onChange({ value: opt.value, displayLabel: opt.label });
+    } else {
+      onChange({ value: opt.value, displayLabel: undefined });
+    }
+  }
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <input
+        type="text"
+        value={inputText}
+        onChange={(e) => handleChange(e.target.value)}
+        onFocus={handleFocus}
+        placeholder={placeholder}
+        autoComplete="off"
+        className="h-9 w-full rounded-lg border border-crm-border bg-crm-panel px-3 text-sm text-crm-text outline-none focus:border-blue-500"
+      />
+      {open ?
+        <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-20 max-h-48 overflow-y-auto rounded-lg border border-crm-border bg-crm-panel shadow-lg">
+          {loading ?
+            <div className="flex items-center gap-2 px-3 py-2 text-xs text-crm-text-muted">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+              Loading…
+            </div>
+          : suggestions.length === 0 ?
+            <p className="px-3 py-2 text-xs text-crm-text-muted">No suggestions</p>
+          : suggestions.map((opt) => (
+              <button
+                key={`${opt.value}::${opt.label}`}
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => handleSelect(opt)}
+                className="flex w-full px-3 py-2 text-left text-sm text-crm-text transition hover:bg-zinc-100 dark:hover:bg-zinc-800/70"
+              >
+                <span className="min-w-0 truncate">{opt.label}</span>
+              </button>
+            ))
+          }
+        </div>
+      : null}
+    </div>
+  );
+}
+
 function FieldFilterSection({
   field,
+  zohoModule,
   selectedValues,
   onToggleValue,
   manualDraft,
   onManualChange,
 }: {
   field: ContractFilterFieldMeta;
+  zohoModule: string;
   selectedValues: Set<string>;
   onToggleValue: (value: string) => void;
   manualDraft: ManualFilterDraft;
@@ -165,6 +340,7 @@ function FieldFilterSection({
     (manualDraft.value.trim().length > 0 ||
       (manualDraft.operator === "between" && manualDraft.value2.trim().length > 0));
   const active = hasCheckbox ? selectedValues.size > 0 : manualActive;
+  const useSuggestions = !hasCheckbox && !isDateType(field.dataType);
 
   return (
     <section className="border-b border-crm-border/60 last:border-b-0">
@@ -231,23 +407,46 @@ function FieldFilterSection({
               </label>
               <label className="block">
                 <span className="mb-1 block text-xs text-crm-text-muted">Value</span>
-                <input
-                  type={isDateType(field.dataType) ? "date" : "text"}
-                  value={manualDraft.value}
-                  onChange={(e) => onManualChange({ value: e.target.value })}
-                  placeholder={`Enter ${field.label.toLowerCase()}…`}
-                  className="h-9 w-full rounded-lg border border-crm-border bg-crm-panel px-3 text-sm text-crm-text outline-none focus:border-blue-500"
-                />
+                {useSuggestions ?
+                  <FilterValueSuggestionInput
+                    field={field}
+                    zohoModule={zohoModule}
+                    value={manualDraft.value}
+                    displayLabel={manualDraft.displayLabel}
+                    placeholder={`Enter ${field.label.toLowerCase()}…`}
+                    onChange={(patch) => onManualChange(patch)}
+                  />
+                : <input
+                    type="date"
+                    value={manualDraft.value}
+                    onChange={(e) => onManualChange({ value: e.target.value, displayLabel: undefined })}
+                    placeholder={`Enter ${field.label.toLowerCase()}…`}
+                    className="h-9 w-full rounded-lg border border-crm-border bg-crm-panel px-3 text-sm text-crm-text outline-none focus:border-blue-500"
+                  />
+                }
               </label>
               {manualDraft.operator === "between" ?
                 <label className="block">
                   <span className="mb-1 block text-xs text-crm-text-muted">To</span>
-                  <input
-                    type={isDateType(field.dataType) ? "date" : "text"}
-                    value={manualDraft.value2}
-                    onChange={(e) => onManualChange({ value2: e.target.value })}
-                    className="h-9 w-full rounded-lg border border-crm-border bg-crm-panel px-3 text-sm text-crm-text outline-none focus:border-blue-500"
-                  />
+                  {useSuggestions ?
+                    <FilterValueSuggestionInput
+                      field={field}
+                      zohoModule={zohoModule}
+                      value={manualDraft.value2}
+                      placeholder="To…"
+                      onChange={(patch) =>
+                        onManualChange({
+                          value2: patch.value,
+                        })
+                      }
+                    />
+                  : <input
+                      type="date"
+                      value={manualDraft.value2}
+                      onChange={(e) => onManualChange({ value2: e.target.value })}
+                      className="h-9 w-full rounded-lg border border-crm-border bg-crm-panel px-3 text-sm text-crm-text outline-none focus:border-blue-500"
+                    />
+                  }
                 </label>
               : null}
             </>
@@ -267,6 +466,8 @@ type SideBarProps = {
   filteredTotal?: number | null;
   applyLoading?: boolean;
   filtersApiUrl?: string;
+  /** Zoho CRM module API name used for field suggestions. */
+  zohoModule?: string;
   filterPanelId?: string;
   filterAriaLabel?: string;
   /** When set, sidebar uses this metadata instead of fetching from the API. */
@@ -279,7 +480,7 @@ type SideBarProps = {
 };
 
 function emptyManualDraft(field: ContractFilterFieldMeta): ManualFilterDraft {
-  return { operator: defaultOperator(field), value: "", value2: "" };
+  return { operator: defaultOperator(field), value: "", value2: "", displayLabel: undefined };
 }
 
 export default function SideBar({
@@ -291,6 +492,7 @@ export default function SideBar({
   filteredTotal = null,
   applyLoading = false,
   filtersApiUrl = "/api/contracts/filters",
+  zohoModule = "Contracts",
   filterPanelId = "contracts-filters",
   filterAriaLabel = "Contract filters",
   filterMetaOverride,
@@ -493,6 +695,10 @@ export default function SideBar({
     const selections: ContractFieldFilterSelection[] = [
       ...selectionsFromCheckboxState(fieldSelections),
     ];
+    /** Display values for offline/client-side filtering (names, not ids). */
+    const displaySelections: ContractFieldFilterSelection[] = [
+      ...selectionsFromCheckboxState(fieldSelections),
+    ];
 
     for (const field of fieldMeta) {
       if (field.dataType === "custom_view") continue;
@@ -500,25 +706,42 @@ export default function SideBar({
       const draft = manualDrafts.get(field.apiName);
       if (!draft?.value.trim()) continue;
 
+      const criteriaValue = draft.value.trim();
+      const displayValue = (draft.displayLabel ?? draft.value).trim();
+
       if (draft.operator === "between") {
         if (!draft.value2.trim()) continue;
         selections.push({
+          apiName: criteriaApiNameForFilterField(field.apiName, field.dataType, zohoModule),
+          operator: "between",
+          values: [criteriaValue, draft.value2.trim()],
+        });
+        displaySelections.push({
           apiName: field.apiName,
           operator: "between",
-          values: [draft.value.trim(), draft.value2.trim()],
+          values: [displayValue, draft.value2.trim()],
         });
       } else {
         selections.push({
+          apiName: criteriaApiNameForFilterField(field.apiName, field.dataType, zohoModule),
+          operator: draft.operator,
+          values: [criteriaValue],
+        });
+        displaySelections.push({
           apiName: field.apiName,
           operator: draft.operator,
-          values: [draft.value.trim()],
+          values: [displayValue],
         });
       }
     }
 
     const criteria = buildCriteriaFromFieldFilters(selections);
     applyClosePending.current = true;
-    onApplyFilters({ criteria, customViewId: null, fieldSelections: selections });
+    onApplyFilters({
+      criteria,
+      customViewId: null,
+      fieldSelections: displaySelections,
+    });
   }
 
   return (
@@ -613,6 +836,7 @@ export default function SideBar({
                   fieldSelections={fieldSelections}
                   manualDrafts={manualDrafts}
                   selectedCustomViewId={selectedCustomViewId}
+                  zohoModule={zohoModule}
                   onToggleFieldValue={toggleFieldValue}
                   onManualChange={updateManualDraft}
                   getManualDraft={getManualDraft}
