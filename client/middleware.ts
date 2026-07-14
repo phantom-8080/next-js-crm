@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
+/** Session granted only after a Zoho CRM entry (2 minutes). */
+const ACCESS_COOKIE = "zoho_crm_session";
 /** Clear any older access cookie from the previous approach. */
 const LEGACY_ACCESS_COOKIE = "zoho_crm_access";
+
+const ACCESS_TTL_SECONDS = 2 * 60; // 2 minutes
 
 const FRAME_ANCESTORS =
   "frame-ancestors https://*.zoho.com https://zoho.com https://crm.zoho.com;";
@@ -36,27 +40,12 @@ function isSameAppHost(requestHost: string, sourceHost: string | null): boolean 
   return sourceHost === requestHost.toLowerCase();
 }
 
-/**
- * Browser address-bar / bookmark open — not coming from another site.
- * These must never be allowed unless Referer/Origin is Zoho (it won't be).
- */
-function isDirectBrowserEntry(request: NextRequest): boolean {
-  const site = request.headers.get("sec-fetch-site");
-  // Modern browsers send "none" when the user types/pastes the URL.
-  if (site === "none") return true;
-  // No Zoho/same-app source and no sec-fetch-site (or empty referer) on a document load.
-  const dest = request.headers.get("sec-fetch-dest");
-  const referer = request.headers.get("referer");
-  const origin = request.headers.get("origin");
-  if ((dest === "document" || dest === "iframe") && !referer && !origin) {
-    return true;
-  }
-  return false;
+function hasValidAccessCookie(request: NextRequest): boolean {
+  return request.cookies.get(ACCESS_COOKIE)?.value === "1";
 }
 
 function withSecurityHeaders(response: NextResponse): NextResponse {
   response.headers.set("Content-Security-Policy", FRAME_ANCESTORS);
-  // Clear legacy cookie from the earlier approach (no stored access).
   response.cookies.set({
     name: LEGACY_ACCESS_COOKIE,
     value: "",
@@ -66,17 +55,61 @@ function withSecurityHeaders(response: NextResponse): NextResponse {
   return response;
 }
 
-function allow(): NextResponse {
-  return withSecurityHeaders(NextResponse.next());
+function setAccessCookie(response: NextResponse): void {
+  response.cookies.set({
+    name: ACCESS_COOKIE,
+    value: "1",
+    path: "/",
+    maxAge: ACCESS_TTL_SECONDS,
+    httpOnly: true,
+    // App is framed inside Zoho CRM — cookie must work in a cross-site iframe.
+    secure: true,
+    sameSite: "none",
+  });
 }
 
-function denyAccess(): NextResponse {
+function clearAccessCookie(response: NextResponse): void {
+  response.cookies.set({
+    name: ACCESS_COOKIE,
+    value: "",
+    path: "/",
+    maxAge: 0,
+    httpOnly: true,
+    secure: true,
+    sameSite: "none",
+  });
+}
+
+function allow(setCookie = false): NextResponse {
+  const response = withSecurityHeaders(NextResponse.next());
+  if (setCookie) {
+    setAccessCookie(response);
+  }
+  return response;
+}
+
+type DenyReason = "outside" | "expired";
+
+function denyAccess(reason: DenyReason): NextResponse {
+  const copy =
+    reason === "expired"
+      ? {
+          title: "Session expired",
+          heading: "Open this tab from CRM again",
+          body: "Your access window has ended. Reopen this view from Zoho CRM to continue.",
+        }
+      : {
+          title: "Access restricted",
+          heading: "You cannot access this page",
+          body: "Open this view from Zoho CRM to access it. Direct links and other sites are not allowed.",
+        };
+
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Access restricted</title>
+  <title>${copy.title}</title>
   <style>
     body { font-family: system-ui, sans-serif; margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f6f7f9; color: #1a1a1a; }
     main { max-width: 28rem; padding: 1.5rem; text-align: center; }
@@ -86,8 +119,8 @@ function denyAccess(): NextResponse {
 </head>
 <body>
   <main>
-    <h1>You are not authorized to access this app</h1>
-    <p>Please contact your administrator to get access to this app.</p>
+    <h1>${copy.heading}</h1>
+    <p>${copy.body}</p>
   </main>
 </body>
 </html>`;
@@ -96,6 +129,7 @@ function denyAccess(): NextResponse {
     status: 403,
     headers: { "Content-Type": "text/html; charset=utf-8" },
   });
+  clearAccessCookie(response);
   return withSecurityHeaders(response);
 }
 
@@ -107,35 +141,33 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Every request: inspect current Referer / Origin (nothing stored in cookie/localStorage).
   const refererHost = hostnameFromHeader(request.headers.get("referer"));
   const originHost = hostnameFromHeader(request.headers.get("origin"));
+  const fromZoho =
+    isZohoHostname(refererHost) || isZohoHostname(originHost);
 
-  // Allowed entry: request is coming from zoho.com / crm.zoho.com (or other *.zoho.com).
-  if (isZohoHostname(refererHost) || isZohoHostname(originHost)) {
-    return allow();
+  // Fresh entry from Zoho CRM → grant a 2-minute session cookie.
+  if (fromZoho) {
+    return allow(true);
   }
 
-  // Typing/pasting the AppSail URL in the browser → always blocked.
-  if (isDirectBrowserEntry(request)) {
-    return denyAccess();
+  // Within the 2-minute window → continue using the app (navigations, API, etc.).
+  if (hasValidAccessCookie(request)) {
+    return allow(false);
   }
 
-  /*
-   * Same-app follow-up only (checked on this request’s headers each time):
-   * After CRM opens the app, Next.js navigations and /api calls send Referer
-   * as this AppSail host — not Zoho. Still not "remembered" access.
-   */
+  // Cookie missing/expired: same-app traffic → ask to reopen from CRM.
   const site = request.headers.get("sec-fetch-site");
   if (
     site === "same-origin" ||
     isSameAppHost(hostname, refererHost) ||
     isSameAppHost(hostname, originHost)
   ) {
-    return allow();
+    return denyAccess("expired");
   }
 
-  return denyAccess();
+  // Outside Zoho / direct URL / other sites.
+  return denyAccess("outside");
 }
 
 export const config = {
