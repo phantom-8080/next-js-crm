@@ -6,10 +6,9 @@ const ACCESS_COOKIE = "zoho_crm_session";
 /** Clear any older access cookie from the previous approach. */
 const LEGACY_ACCESS_COOKIE = "zoho_crm_access";
 
-const ACCESS_TTL_SECONDS = 2 * 60; // 2 minutes
+const ACCESS_TTL_SECONDS = 24 * 60 * 60; // 24 hours
 
-const FRAME_ANCESTORS =
-  "frame-ancestors https://*.zoho.com https://zoho.com https://crm.zoho.com;";
+const FRAME_ANCESTORS = "frame-ancestors https://*.zoho.com https://zoho.com https://crm.zoho.com;";
 
 function hostnameFromHeader(value: string | null): string | null {
   if (!value) return null;
@@ -92,17 +91,17 @@ type DenyReason = "outside" | "expired";
 
 function denyAccess(reason: DenyReason): NextResponse {
   const copy =
-    reason === "expired"
-      ? {
-          title: "Session expired",
-          heading: "Open this tab from CRM again",
-          body: "Your access window has ended. Reopen this view from Zoho CRM to continue.",
-        }
-      : {
-          title: "Access restricted",
-          heading: "You cannot access this page",
-          body: "Open this view from Zoho CRM to access it. Direct links and other sites are not allowed.",
-        };
+    reason === "expired" ?
+      {
+        title: "Session expired",
+        heading: "Open this tab from CRM again",
+        body: "Your access window has ended. Reopen this view from Zoho CRM to continue.",
+      }
+    : {
+        title: "Access restricted",
+        heading: "You cannot access this page",
+        body: "Open this view from Zoho CRM to access it. Direct links and other sites are not allowed.",
+      };
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -143,8 +142,7 @@ export function middleware(request: NextRequest) {
 
   const refererHost = hostnameFromHeader(request.headers.get("referer"));
   const originHost = hostnameFromHeader(request.headers.get("origin"));
-  const fromZoho =
-    isZohoHostname(refererHost) || isZohoHostname(originHost);
+  const fromZoho = isZohoHostname(refererHost) || isZohoHostname(originHost);
 
   // Fresh entry from Zoho CRM → grant a 2-minute session cookie.
   if (fromZoho) {
