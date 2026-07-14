@@ -32,29 +32,41 @@ export function getZohoModuleSearchUrl(
   return `${ZOHO_CRM_BASE}/${encodeURIComponent(module)}/search?${params.toString()}`;
 }
 
-async function fetchWithToken(url, token) {
-  const res = await fetch(url, {
-    method: "GET",
-    headers: {
-      Authorization: `Zoho-oauthtoken ${token}`,
-    },
-    cache: "no-store",
-  });
+/**
+ * @param {string} url
+ * @param {string} token
+ * @param {{ method?: string; body?: unknown }} [options]
+ */
+async function fetchWithToken(url, token, options = {}) {
+  const method = options.method ?? "GET";
+  /** @type {Record<string, string>} */
+  const headers = {
+    Authorization: `Zoho-oauthtoken ${token}`,
+  };
+  /** @type {RequestInit} */
+  const init = { method, headers, cache: "no-store" };
+  if (options.body !== undefined) {
+    headers["Content-Type"] = "application/json";
+    init.body = JSON.stringify(options.body);
+  }
+  const res = await fetch(url, init);
   const body = await res.json().catch(() => ({}));
   return { res, body };
 }
 
 /**
- * Authenticated GET to Zoho CRM. Retries once after refreshing the access token.
+ * Authenticated request to Zoho CRM. Retries once after refreshing the access token.
+ * @param {string} url
+ * @param {{ method?: string; body?: unknown }} [options]
  */
-export async function fetchZohoJson(url) {
+export async function fetchZohoJson(url, options = {}) {
   let token = await getZohoAccessToken();
-  let result = await fetchWithToken(url, token);
+  let result = await fetchWithToken(url, token, options);
 
   if (isZohoTokenExpiredResponse(result.res, result.body)) {
     invalidateZohoAccessTokenCache();
     token = await getZohoAccessToken({ force: true });
-    result = await fetchWithToken(url, token);
+    result = await fetchWithToken(url, token, options);
   }
 
   return result;

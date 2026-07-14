@@ -474,6 +474,8 @@ type SideBarProps = {
   };
   /** True when client-side field filters are applied (static list mode). */
   listFiltersActive?: boolean;
+  /** Fired after a filter is persisted as a Zoho custom view (Contracts). */
+  onZohoCustomViewCreated?: (customViewId: string) => void;
 };
 
 function emptyManualDraft(field: ContractFilterFieldMeta): ManualFilterDraft {
@@ -494,8 +496,10 @@ export default function SideBar({
   filterAriaLabel = "Contract filters",
   filterMetaOverride,
   listFiltersActive = false,
+  onZohoCustomViewCreated,
 }: SideBarProps) {
   const applyClosePending = useRef(false);
+  const persistToZohoCrm = zohoModule === "Contracts";
   const [sections, setSections] = useState<ContractFilterSection[]>([]);
   const [fieldMeta, setFieldMeta] = useState<ContractFilterFieldMeta[]>([]);
   const [metaLoading, setMetaLoading] = useState(true);
@@ -507,11 +511,18 @@ export default function SideBar({
   const [savedFilters, setSavedFilters] = useState<SavedFilterPreset[]>([]);
   const [saveName, setSaveName] = useState("");
   const [saveOpen, setSaveOpen] = useState(false);
+  const [saveAccessType, setSaveAccessType] = useState<"only_to_me" | "public">("only_to_me");
+  const [saveLoading, setSaveLoading] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [activeSavedFilterId, setActiveSavedFilterId] = useState<string | null>(null);
 
   useEffect(() => {
+    if (persistToZohoCrm) {
+      setSavedFilters([]);
+      return;
+    }
     setSavedFilters(loadSavedFilters(zohoModule));
-  }, [zohoModule]);
+  }, [zohoModule, persistToZohoCrm]);
 
   useEffect(() => {
     // Custom views are applied from the toolbar dropdown (not the sidebar).
@@ -713,11 +724,16 @@ export default function SideBar({
       };
     }
 
-    const selections: ContractFieldFilterSelection[] = [
-      ...selectionsFromCheckboxState(nextCheckboxes),
-    ];
+    const checkboxSelections = selectionsFromCheckboxState(nextCheckboxes);
+    const selections: ContractFieldFilterSelection[] = checkboxSelections.map((s) => {
+      const field = fieldMeta.find((f) => f.apiName === s.apiName);
+      return {
+        ...s,
+        apiName: criteriaApiNameForFilterField(s.apiName, field?.dataType, zohoModule),
+      };
+    });
     const displaySelections: ContractFieldFilterSelection[] = [
-      ...selectionsFromCheckboxState(nextCheckboxes),
+      ...checkboxSelections,
     ];
 
     for (const field of fieldMeta) {
@@ -859,9 +875,15 @@ export default function SideBar({
     nextCheckboxes: Map<string, Set<string>>,
     nextDrafts: Map<string, ManualFilterDraft>,
   ): Promise<ContractFieldFilterSelection[]> {
-    const baseSelections: ContractFieldFilterSelection[] = [
-      ...selectionsFromCheckboxState(nextCheckboxes),
-    ];
+    const baseSelections: ContractFieldFilterSelection[] = selectionsFromCheckboxState(
+      nextCheckboxes,
+    ).map((s) => {
+      const field = fieldMeta.find((f) => f.apiName === s.apiName);
+      return {
+        ...s,
+        apiName: criteriaApiNameForFilterField(s.apiName, field?.dataType, zohoModule),
+      };
+    });
     for (const field of fieldMeta) {
       if (field.dataType === "custom_view") continue;
       if (field.hasOptions && field.options.length > 0) continue;
@@ -952,7 +974,89 @@ export default function SideBar({
     };
   }
 
-  function saveCurrentFilters() {
+  async function reloadFilterMeta() {
+    if (filterMetaOverride) return;
+    try {
+      const res = await fetch(filtersApiUrl, { cache: "no-store" });
+      const data = (await res.json()) as {
+        sections?: ContractFilterSection[];
+        fields?: ContractFilterFieldMeta[];
+      };
+      if (res.ok) {
+        setSections(data.sections ?? []);
+        setFieldMeta(data.fields ?? []);
+      }
+    } catch {
+      /* keep existing meta */
+    }
+  }
+
+  async function saveCurrentFiltersToZoho() {
+    const name = saveName.trim();
+    if (!name) {
+      setSaveError("Enter a filter name");
+      return;
+    }
+    if (!hasFieldValueFilters) {
+      setSaveError("Add at least one field condition before saving");
+      return;
+    }
+
+    setSaveLoading(true);
+    setSaveError(null);
+    try {
+      const zohoSelections = await buildZohoSelectionsFromState(fieldSelections, manualDrafts);
+      const conditions = zohoSelections.map((selection) => ({
+        apiName: selection.apiName,
+        operator: selection.operator || (selection.values.length > 1 ? "in" : "equals"),
+        values: selection.values,
+      }));
+
+      const res = await fetch("/api/contracts/custom-views", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          accessType: saveAccessType,
+          conditions,
+        }),
+      });
+      const data = (await res.json()) as {
+        id?: string;
+        customViewId?: string;
+        error?: string;
+      };
+      if (!res.ok) {
+        throw new Error(data.error ?? "Failed to save filter to Zoho CRM");
+      }
+
+      const newId = data.customViewId ?? data.id ?? null;
+      await reloadFilterMeta();
+      setSaveOpen(false);
+      setSaveName("");
+      setSaveError(null);
+      setFieldSelections(new Map());
+      setManualDrafts(new Map());
+      setSelectedCustomViewId(null);
+
+      if (newId) {
+        setActiveSavedFilterId(newId);
+        applyClosePending.current = true;
+        onApplyFilters({
+          criteria: null,
+          customViewId: newId,
+          fieldSelections: [],
+        });
+        onZohoCustomViewCreated?.(newId);
+      }
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Failed to save filter to Zoho CRM");
+    } finally {
+      setSaveLoading(false);
+    }
+  }
+
+  function saveCurrentFiltersLocal() {
     const preset = snapshotCurrentFilters();
     if (!preset) return;
     const next = [preset, ...savedFilters.filter((p) => p.name !== preset.name)];
@@ -963,7 +1067,16 @@ export default function SideBar({
     setSaveName("");
   }
 
+  async function saveCurrentFilters() {
+    if (persistToZohoCrm) {
+      await saveCurrentFiltersToZoho();
+      return;
+    }
+    saveCurrentFiltersLocal();
+  }
+
   function deleteSavedFilter(id: string) {
+    if (persistToZohoCrm) return;
     const next = savedFilters.filter((p) => p.id !== id);
     setSavedFilters(next);
     persistSavedFilters(zohoModule, next);
@@ -1095,7 +1208,7 @@ export default function SideBar({
             "[&::-webkit-scrollbar-thumb:hover]:bg-zinc-500",
           ].join(" ")}
         >
-          {savedFilters.length > 0 ?
+          {!persistToZohoCrm && savedFilters.length > 0 ?
             <div className="border-b border-crm-border/80 px-2 py-2">
               <p className="column-heading px-2 pb-1.5 text-xs text-crm-text-muted">Saved filters</p>
               <div className="space-y-1">
@@ -1183,34 +1296,70 @@ export default function SideBar({
                     onKeyDown={(e) => {
                       if (e.key === "Enter") {
                         e.preventDefault();
-                        saveCurrentFilters();
+                        void saveCurrentFilters();
                       }
                       if (e.key === "Escape") {
                         setSaveOpen(false);
                         setSaveName("");
+                        setSaveError(null);
                       }
                     }}
                     placeholder="e.g. Active Carvana sites"
                     autoFocus
-                    className="h-9 w-full rounded-lg border border-crm-border bg-crm-panel-muted px-3 text-sm text-crm-text outline-none focus:border-blue-500"
+                    disabled={saveLoading}
+                    className="h-9 w-full rounded-lg border border-crm-border bg-crm-panel-muted px-3 text-sm text-crm-text outline-none focus:border-blue-500 disabled:opacity-60"
                   />
                 </label>
+                {persistToZohoCrm ?
+                  <label className="block">
+                    <span className="mb-1 block text-xs text-crm-text-muted">Share in Zoho CRM</span>
+                    <select
+                      value={saveAccessType}
+                      onChange={(e) =>
+                        setSaveAccessType(e.target.value === "public" ? "public" : "only_to_me")
+                      }
+                      disabled={saveLoading}
+                      className="h-9 w-full rounded-lg border border-crm-border bg-crm-panel-muted px-2 text-sm text-crm-text outline-none focus:border-blue-500 disabled:opacity-60"
+                    >
+                      <option value="only_to_me">Only me</option>
+                      <option value="public">Everyone (public)</option>
+                    </select>
+                  </label>
+                : null}
+                {saveError ?
+                  <p className="rounded-md border border-red-300/50 bg-red-50 px-2 py-1.5 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
+                    {saveError}
+                  </p>
+                : persistToZohoCrm ?
+                  <p className="text-[11px] leading-snug text-crm-text-muted">
+                    Saves permanently as a Zoho CRM custom view (same list as the toolbar dropdown).
+                  </p>
+                : null}
                 <div className="flex gap-2">
                   <button
                     type="button"
-                    onClick={saveCurrentFilters}
-                    disabled={!canSaveCurrent}
-                    className="h-8 flex-1 cursor-pointer rounded-lg bg-gradient-to-b from-blue-500 to-blue-700 text-sm font-medium text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                    onClick={() => void saveCurrentFilters()}
+                    disabled={!canSaveCurrent || saveLoading || !saveName.trim()}
+                    className="flex h-8 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-gradient-to-b from-blue-500 to-blue-700 text-sm font-medium text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    Save
+                    {saveLoading ?
+                      <>
+                        <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                        Saving…
+                      </>
+                    : persistToZohoCrm ?
+                      "Save to Zoho"
+                    : "Save"}
                   </button>
                   <button
                     type="button"
                     onClick={() => {
                       setSaveOpen(false);
                       setSaveName("");
+                      setSaveError(null);
                     }}
-                    className="h-8 cursor-pointer rounded-lg border border-crm-border bg-crm-panel-muted px-3 text-sm text-crm-text transition hover:bg-crm-panel"
+                    disabled={saveLoading}
+                    className="h-8 cursor-pointer rounded-lg border border-crm-border bg-crm-panel-muted px-3 text-sm text-crm-text transition hover:bg-crm-panel disabled:opacity-60"
                   >
                     Cancel
                   </button>
@@ -1238,12 +1387,15 @@ export default function SideBar({
             {canSaveCurrent && !saveOpen ?
               <button
                 type="button"
-                onClick={() => setSaveOpen(true)}
-                disabled={applyLoading}
+                onClick={() => {
+                  setSaveOpen(true);
+                  setSaveError(null);
+                }}
+                disabled={applyLoading || saveLoading}
                 className="flex h-8 w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-crm-border bg-crm-panel text-sm text-crm-text transition hover:bg-crm-panel-muted disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <Bookmark className="h-3.5 w-3.5" aria-hidden />
-                Save filter
+                {persistToZohoCrm ? "Save to Zoho CRM" : "Save filter"}
               </button>
             : null}
 

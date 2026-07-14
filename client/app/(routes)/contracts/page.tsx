@@ -17,6 +17,7 @@ export default function ContractsPage() {
   const [filteredTotal, setFilteredTotal] = useState<number | null>(null);
   const [contractsLoading, setContractsLoading] = useState(false);
   const [offlineDemo, setOfflineDemo] = useState(false);
+  const [customViewsRefreshKey, setCustomViewsRefreshKey] = useState(0);
 
   const handleFilteredTotalChange = useCallback((total: number | null) => {
     setFilteredTotal(total);
@@ -56,6 +57,9 @@ export default function ContractsPage() {
           onApplyFilters={handleApplyFilters}
           zohoModule="Contracts"
           listFiltersActive={offlineDemo && listFiltersActive}
+          onZohoCustomViewCreated={() => {
+            setCustomViewsRefreshKey((k) => k + 1);
+          }}
         />
         <ContractsTable
           filtersOpen={filtersOpen}
@@ -63,6 +67,7 @@ export default function ContractsPage() {
           searchCriteria={offlineDemo ? null : searchCriteria}
           customViewId={customViewId}
           fieldSelections={fieldSelections}
+          customViewsRefreshKey={customViewsRefreshKey}
           onClearSearchCriteria={() => {
             setSearchCriteria(null);
             setCustomViewId(null);

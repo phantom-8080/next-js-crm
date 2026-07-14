@@ -75,5 +75,11 @@ export function criteriaApiNameForFilterField(apiName, dataType = "", module = "
     return "Operations_Manager";
   }
 
+  // Subform Layout (`Our_Services_SubForm.Layout`) is not valid in list filters.
+  // Map onto the parent module Layout field (same Vendor / Client-Site ids).
+  if (name.endsWith(".Layout") || (type === "layout" && name.includes("."))) {
+    return "Layout";
+  }
+
   return name;
 }

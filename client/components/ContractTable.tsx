@@ -247,6 +247,8 @@ type ContractsTableProps = {
   onOfflineDemoChange?: (active: boolean) => void;
   /** Apply a Zoho custom view from the toolbar dropdown (one at a time). */
   onApplyCustomView?: (payload: ContractFilterApplyPayload) => void;
+  /** Bump to reload custom views after creating one from the sidebar. */
+  customViewsRefreshKey?: number;
 };
 
 function ContractCard({
@@ -314,6 +316,7 @@ export default function ContractsTable({
   onContractsLoadingChange,
   onOfflineDemoChange,
   onApplyCustomView,
+  customViewsRefreshKey = 0,
 }: ContractsTableProps) {
   const { visibleApiNames, setVisibleApiNames } = useContractVisibleColumns();
   const [fieldCatalog, setFieldCatalog] = useState<CrmFieldMeta[]>(FALLBACK_FIELD_CATALOG);
@@ -574,6 +577,7 @@ export default function ContractsTable({
                 <CustomViewsDropdown
                   zohoModule="Contracts"
                   selectedCustomViewId={customViewId}
+                  refreshKey={customViewsRefreshKey}
                   onSelect={(nextId) => {
                     setPage(1);
                     onApplyCustomView({

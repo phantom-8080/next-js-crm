@@ -32,6 +32,8 @@ export type ContractFilterFieldMeta = {
   favorite?: boolean;
   /** Zoho default custom view for the module. */
   defaultView?: boolean;
+  /** Zoho system-defined custom view (not user-deletable). */
+  systemDefined?: boolean;
 };
 
 export type ContractFilterSection = {
