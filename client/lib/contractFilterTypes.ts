@@ -22,12 +22,16 @@ export type ContractFilterFieldMeta = {
   options: ContractFilterOption[];
   hasOptions: boolean;
   section: ContractFilterSectionId;
-  /** Subform block title in CRM (e.g. Scope of Work Form). */
+  /** Subform block title / custom-view category (e.g. Created By Me). */
   groupLabel?: string;
-  /** Zoho custom view id for system-defined list filters. */
+  /** Zoho custom view id for list filters (cvid). */
   customViewId?: string;
   /** Related Zoho module API name for lookup fields (suggestions). */
   lookupModule?: string;
+  /** Zoho custom view marked as favorite. */
+  favorite?: boolean;
+  /** Zoho default custom view for the module. */
+  defaultView?: boolean;
 };
 
 export type ContractFilterSection = {

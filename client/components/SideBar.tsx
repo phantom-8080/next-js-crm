@@ -29,50 +29,24 @@ import type {
   ContractFilterSection,
 } from "@/lib/contractFilterTypes";
 
-function SystemViewFilterRow({
-  field,
-  checked,
-  onToggle,
-}: {
-  field: ContractFilterFieldMeta;
-  checked: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <label className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 transition hover:bg-zinc-100 dark:hover:bg-zinc-800/70">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={onToggle}
-        className="h-4 w-4 shrink-0 rounded border-crm-border bg-crm-panel accent-blue-500"
-      />
-      <span className="min-w-0 text-sm text-crm-text">{field.label}</span>
-    </label>
-  );
-}
-
 function FilterSectionGroup({
   section,
   filterSearch,
   fieldSelections,
   manualDrafts,
-  selectedCustomViewId,
   zohoModule,
   onToggleFieldValue,
   onManualChange,
   getManualDraft,
-  onToggleCustomView,
 }: {
   section: ContractFilterSection;
   filterSearch: string;
   fieldSelections: Map<string, Set<string>>;
   manualDrafts: Map<string, ManualFilterDraft>;
-  selectedCustomViewId: string | null;
   zohoModule: string;
   onToggleFieldValue: (apiName: string, value: string) => void;
   onManualChange: (apiName: string, field: ContractFilterFieldMeta, patch: Partial<ManualFilterDraft>) => void;
   getManualDraft: (apiName: string, field: ContractFilterFieldMeta) => ManualFilterDraft;
-  onToggleCustomView: (field: ContractFilterFieldMeta) => void;
 }) {
   const [open, setOpen] = useState(section.id === "fields");
   const q = filterSearch.trim().toLowerCase();
@@ -81,10 +55,11 @@ function FilterSectionGroup({
     if (!q) return section.fields;
     return section.fields.filter(
       (f) =>
-        f.label.toLowerCase().includes(q) ||
-        f.apiName.toLowerCase().includes(q) ||
-        (f.groupLabel?.toLowerCase().includes(q) ?? false) ||
-        f.options.some((o) => o.label.toLowerCase().includes(q)),
+        f.dataType !== "custom_view" &&
+        (f.label.toLowerCase().includes(q) ||
+          f.apiName.toLowerCase().includes(q) ||
+          (f.groupLabel?.toLowerCase().includes(q) ?? false) ||
+          f.options.some((o) => o.label.toLowerCase().includes(q))),
     );
   }, [section.fields, q]);
 
@@ -111,37 +86,27 @@ function FilterSectionGroup({
 
       {open ?
         <div className="pb-2 pl-1">
-          {section.id === "system_defined" ?
-            visibleFields.map((field) => (
-              <SystemViewFilterRow
-                key={field.apiName}
-                field={field}
-                checked={selectedCustomViewId === field.customViewId}
-                onToggle={() => onToggleCustomView(field)}
-              />
-            ))
-          : visibleFields.map((field) => {
-              const showGroup = field.groupLabel && field.groupLabel !== lastGroup;
-              if (field.groupLabel) lastGroup = field.groupLabel;
-              return (
-                <div key={field.apiName}>
-                  {showGroup ?
-                    <p className="column-heading px-2 pb-1 pt-2 text-xs text-crm-text-muted">
-                      {field.groupLabel}
-                    </p>
-                  : null}
-                  <FieldFilterSection
-                    field={field}
-                    zohoModule={zohoModule}
-                    selectedValues={fieldSelections.get(field.apiName) ?? new Set()}
-                    onToggleValue={(value) => onToggleFieldValue(field.apiName, value)}
-                    manualDraft={getManualDraft(field.apiName, field)}
-                    onManualChange={(patch) => onManualChange(field.apiName, field, patch)}
-                  />
-                </div>
-              );
-            })
-          }
+          {visibleFields.map((field) => {
+            const showGroup = field.groupLabel && field.groupLabel !== lastGroup;
+            if (field.groupLabel) lastGroup = field.groupLabel;
+            return (
+              <div key={field.apiName}>
+                {showGroup ?
+                  <p className="column-heading px-2 pb-1 pt-2 text-xs text-crm-text-muted">
+                    {field.groupLabel}
+                  </p>
+                : null}
+                <FieldFilterSection
+                  field={field}
+                  zohoModule={zohoModule}
+                  selectedValues={fieldSelections.get(field.apiName) ?? new Set()}
+                  onToggleValue={(value) => onToggleFieldValue(field.apiName, value)}
+                  manualDraft={getManualDraft(field.apiName, field)}
+                  onManualChange={(patch) => onManualChange(field.apiName, field, patch)}
+                />
+              </div>
+            );
+          })}
         </div>
       : null}
     </section>
@@ -549,13 +514,20 @@ export default function SideBar({
   }, [zohoModule]);
 
   useEffect(() => {
+    // Custom views are applied from the toolbar dropdown (not the sidebar).
+    // When a cvid-only view is active, clear sidebar drafts so Apply Filter is not shown.
+    if (searchCriteria == null && customViewId != null) {
+      setFieldSelections(new Map());
+      setManualDrafts(new Map());
+      setSelectedCustomViewId(null);
+      setActiveSavedFilterId(null);
+      return;
+    }
     if (searchCriteria == null && customViewId == null && !listFiltersActive) {
       setFieldSelections(new Map());
       setManualDrafts(new Map());
       setSelectedCustomViewId(null);
       setActiveSavedFilterId(null);
-    } else if (customViewId) {
-      setSelectedCustomViewId(customViewId);
     }
   }, [searchCriteria, customViewId, listFiltersActive]);
 
@@ -613,32 +585,45 @@ export default function SideBar({
     }
     return draft.value.trim().length > 0;
   });
-  const hasActiveFilter = Boolean(searchCriteria || customViewId || listFiltersActive);
+  /** Sidebar chrome only — dropdown custom views do not count as sidebar filters. */
+  const hasActiveFilter = Boolean(searchCriteria || listFiltersActive);
 
   const displaySections = useMemo(() => {
-    if (sections.length > 0) return sections;
-    if (fieldMeta.length === 0) return [];
-
-    const bySection = new Map<string, ContractFilterFieldMeta[]>();
-    for (const field of fieldMeta) {
-      const id = field.section ?? "fields";
-      const list = bySection.get(id) ?? [];
-      list.push(field);
-      bySection.set(id, list);
-    }
-
     const titles: Record<string, string> = {
-      system_defined: "System Defined Filters",
       fields: "Filter By Fields",
       subforms: "Filter By Subforms",
       related_modules: "Filter By Related Modules",
     };
 
-    return [...bySection.entries()].map(([id, fields]) => ({
-      id: id as ContractFilterSection["id"],
-      title: titles[id] ?? id,
-      fields,
-    }));
+    const sourceSections =
+      sections.length > 0 ?
+        sections
+      : (() => {
+          if (fieldMeta.length === 0) return [] as ContractFilterSection[];
+          const bySection = new Map<string, ContractFilterFieldMeta[]>();
+          for (const field of fieldMeta) {
+            if (field.dataType === "custom_view") continue;
+            const id = field.section ?? "fields";
+            const list = bySection.get(id) ?? [];
+            list.push(field);
+            bySection.set(id, list);
+          }
+          return [...bySection.entries()].map(([id, fields]) => ({
+            id: id as ContractFilterSection["id"],
+            title: titles[id] ?? id,
+            fields,
+          }));
+        })();
+
+    // Custom views live in the toolbar dropdown — keep only field filters here.
+    return sourceSections
+      .filter((section) => section.id !== "system_defined")
+      .map((section) => ({
+        ...section,
+        title: titles[section.id] ?? section.title,
+        fields: section.fields.filter((f) => f.dataType !== "custom_view"),
+      }))
+      .filter((section) => section.fields.length > 0);
   }, [fieldMeta, sections]);
 
   const hasVisibleSections = useMemo(() => {
@@ -702,14 +687,6 @@ export default function SideBar({
 
   function getManualDraft(apiName: string, field: ContractFilterFieldMeta) {
     return manualDrafts.get(apiName) ?? emptyManualDraft(field);
-  }
-
-  function toggleCustomView(field: ContractFilterFieldMeta) {
-    const id = field.customViewId ?? null;
-    setFieldSelections(new Map());
-    setManualDrafts(new Map());
-    setActiveSavedFilterId(null);
-    setSelectedCustomViewId((prev) => (prev === id ? null : id));
   }
 
   function buildApplyPayloadFromState(
@@ -934,13 +911,10 @@ export default function SideBar({
     const zohoSelections = await buildZohoSelectionsFromState(fieldSelections, manualDrafts);
 
     applyClosePending.current = true;
+    setSelectedCustomViewId(null);
+    // Field filters replace the toolbar custom view (Zoho list is cvid OR criteria).
     onApplyFilters(
-      buildApplyPayloadFromState(
-        fieldSelections,
-        manualDrafts,
-        selectedCustomViewId,
-        zohoSelections,
-      ),
+      buildApplyPayloadFromState(fieldSelections, manualDrafts, null, zohoSelections),
     );
   }
 
@@ -1034,8 +1008,9 @@ export default function SideBar({
   }
 
   const hasFieldValueFilters = hasCheckboxFilters || hasManualFilters;
-  const canApplyFilters = hasFieldValueFilters || Boolean(selectedCustomViewId);
-  /** Save only when at least one field has a concrete value (not system views alone). */
+  /** Apply only for sidebar field filters — custom views apply immediately via the dropdown. */
+  const canApplyFilters = hasFieldValueFilters;
+  /** Save only when at least one field has a concrete value. */
   const canSaveCurrent = hasFieldValueFilters;
 
   useEffect(() => {
@@ -1185,12 +1160,10 @@ export default function SideBar({
                   filterSearch={filterSearch}
                   fieldSelections={fieldSelections}
                   manualDrafts={manualDrafts}
-                  selectedCustomViewId={selectedCustomViewId}
                   zohoModule={zohoModule}
                   onToggleFieldValue={toggleFieldValue}
                   onManualChange={updateManualDraft}
                   getManualDraft={getManualDraft}
-                  onToggleCustomView={toggleCustomView}
                 />
               ))
             }

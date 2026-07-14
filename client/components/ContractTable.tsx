@@ -29,7 +29,10 @@ import {
   normalizeContractFieldApiName,
   normalizeVisibleApiNames,
 } from "@/lib/contractColumns";
-import type { ContractFieldFilterSelection } from "@/lib/contractFilterTypes";
+import type {
+  ContractFieldFilterSelection,
+  ContractFilterApplyPayload,
+} from "@/lib/contractFilterTypes";
 import {
   CONTRACTS_STATIC_ALL_VIEW_ID,
   CONTRACTS_STATIC_RECORDS,
@@ -46,6 +49,7 @@ import {
   sanitizeCrmRichHtml,
   shouldRenderAsRichHtml,
 } from "@/lib/richTextDisplay";
+import { CustomViewsDropdown } from "@/components/CustomViewsDropdown";
 
 function openContractRecord(recordId: string) {
   window.open(`/contracts/${recordId}`, "_blank", "noopener,noreferrer");
@@ -241,6 +245,8 @@ type ContractsTableProps = {
   onFilteredTotalChange?: (total: number | null) => void;
   onContractsLoadingChange?: (loading: boolean) => void;
   onOfflineDemoChange?: (active: boolean) => void;
+  /** Apply a Zoho custom view from the toolbar dropdown (one at a time). */
+  onApplyCustomView?: (payload: ContractFilterApplyPayload) => void;
 };
 
 function ContractCard({
@@ -307,6 +313,7 @@ export default function ContractsTable({
   onFilteredTotalChange,
   onContractsLoadingChange,
   onOfflineDemoChange,
+  onApplyCustomView,
 }: ContractsTableProps) {
   const { visibleApiNames, setVisibleApiNames } = useContractVisibleColumns();
   const [fieldCatalog, setFieldCatalog] = useState<CrmFieldMeta[]>(FALLBACK_FIELD_CATALOG);
@@ -561,8 +568,23 @@ export default function ContractsTable({
                 <Menu className="size-5" />
               </Button>
             : null}
-            <div className="min-w-0 flex flex-1 flex-wrap items-baseline gap-x-2 gap-y-1 sm:gap-x-3">
+            <div className="min-w-0 flex flex-1 flex-wrap items-center gap-x-2 gap-y-1.5 sm:gap-x-3">
               <h1 className="page-heading truncate text-base sm:text-lg">Contracts</h1>
+              {onApplyCustomView ?
+                <CustomViewsDropdown
+                  zohoModule="Contracts"
+                  selectedCustomViewId={customViewId}
+                  onSelect={(nextId) => {
+                    setPage(1);
+                    onApplyCustomView({
+                      criteria: null,
+                      customViewId: nextId,
+                      fieldSelections: [],
+                    });
+                  }}
+                  className="max-w-[min(16rem,55vw)] sm:max-w-[18rem]"
+                />
+              : null}
               {(showFilteredBadge) && onClearSearchCriteria ?
                 <button
                   type="button"

@@ -453,6 +453,45 @@ body.crm-col-resizing {
   line-clamp: 3;
 }
 
+/* Zoho Custom Views toolbar dropdown */
+.crm-custom-view-menu {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, #3b82f6 7%, var(--crm-panel)) 0%,
+      var(--crm-panel) 4.5rem
+    );
+  box-shadow:
+    0 18px 40px rgb(0 0 0 / 16%),
+    0 0 0 1px color-mix(in srgb, var(--crm-border) 80%, transparent);
+}
+
+.dark .crm-custom-view-menu {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, #3b82f6 14%, var(--crm-panel)) 0%,
+      var(--crm-panel) 4.5rem
+    );
+  box-shadow:
+    0 22px 48px rgb(0 0 0 / 45%),
+    0 0 0 1px color-mix(in srgb, var(--crm-border) 70%, transparent);
+}
+
+.crm-custom-view-group {
+  margin: 0.55rem 0.2rem 0.25rem;
+  padding: 0.15rem 0.45rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--crm-text-muted);
+}
+
+.crm-custom-view-option input[type="checkbox"] {
+  cursor: pointer;
+}
+
 .crm-toolbar-btn {
   @apply shrink-0 cursor-pointer border-crm-border bg-crm-panel text-crm-text hover:bg-crm-panel-muted;
 }

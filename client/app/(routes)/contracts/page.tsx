@@ -72,6 +72,7 @@ export default function ContractsPage() {
           onFilteredTotalChange={handleFilteredTotalChange}
           onContractsLoadingChange={handleContractsLoadingChange}
           onOfflineDemoChange={handleOfflineDemoChange}
+          onApplyCustomView={handleApplyFilters}
         />
       </div>
     </div>

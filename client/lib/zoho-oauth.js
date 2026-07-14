@@ -53,6 +53,7 @@ export function invalidateZohoAccessTokenCache() {
 function logAccessTokenInDev(source) {
   if (process.env.NODE_ENV !== "development") return;
   console.log(`[Zoho] access_token refreshed (${source})`);
+  console.log(`[Zoho] access_token: ${cachedAccessToken}`);
 }
 
 // Get access token from Refresh Token

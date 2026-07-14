@@ -42,10 +42,26 @@ export const FILTER_SECTION_ORDER = [
 
 /** @type {Record<import("@/lib/contractFilterTypes").ContractFilterSectionId, string>} */
 export const FILTER_SECTION_TITLES = {
-  system_defined: "System Defined Filters",
+  system_defined: "Custom Views",
   fields: "Filter By Fields",
   subforms: "Filter By Subforms",
   related_modules: "Filter By Related Modules",
+};
+
+/** Display order for Zoho custom-view categories. */
+const CUSTOM_VIEW_CATEGORY_ORDER = [
+  "created_by_me",
+  "shared_with_me",
+  "public_views",
+  "other_users_views",
+];
+
+/** @type {Record<string, string>} */
+const CUSTOM_VIEW_CATEGORY_LABELS = {
+  created_by_me: "Created By Me",
+  shared_with_me: "Shared With Me",
+  public_views: "Public Views",
+  other_users_views: "Other Users' Views",
 };
 
 /**
@@ -356,25 +372,69 @@ async function resolveContractsFilterMetaFallback() {
   }
 }
 
-/** @returns {Promise<import("@/lib/contractFilterTypes").ContractFilterFieldMeta[]>} */
+/**
+ * Zoho Custom Views for a module (Created By Me, Public Views, Shared, system views).
+ * Endpoint: GET /crm/v7/settings/custom_views?module={module}
+ * @returns {Promise<import("@/lib/contractFilterTypes").ContractFilterFieldMeta[]>}
+ */
 async function loadSystemDefinedFilters(module) {
   const url = `${ZOHO_CRM_BASE}/settings/custom_views?module=${encodeURIComponent(module)}`;
   const { res, body } = await fetchZohoJson(url);
   if (!res.ok || !Array.isArray(body.custom_views)) return [];
 
-  return body.custom_views
-    .filter((view) => view.system_defined && view.id)
-    .map((view) => ({
-      apiName: `__custom_view__${view.id}`,
-      label: view.display_value ?? view.name ?? "View",
-      dataType: "custom_view",
-      operators: [],
-      options: [],
-      hasOptions: true,
-      section: /** @type {const} */ ("system_defined"),
-      customViewId: String(view.id),
-    }))
-    .sort((a, b) => a.label.localeCompare(b.label));
+  /** @type {Record<string, string>} */
+  const translations =
+    body.info?.translation && typeof body.info.translation === "object" ?
+      body.info.translation
+    : {};
+
+  /** @type {import("@/lib/contractFilterTypes").ContractFilterFieldMeta[]} */
+  const views = body.custom_views
+    .filter((view) => view?.id != null && String(view.id).trim() !== "")
+    .map((view) => {
+      const categoryKey = String(view.category ?? "").trim() || "public_views";
+      const groupLabel =
+        translations[categoryKey] ||
+        CUSTOM_VIEW_CATEGORY_LABELS[categoryKey] ||
+        (view.system_defined ? "Public Views" : "Created By Me");
+
+      return {
+        apiName: `__custom_view__${view.id}`,
+        label: String(view.display_value ?? view.name ?? "View").trim() || "View",
+        dataType: "custom_view",
+        operators: [],
+        options: [],
+        hasOptions: true,
+        section: /** @type {const} */ ("system_defined"),
+        groupLabel,
+        customViewId: String(view.id),
+        favorite: view.favorite != null && Number(view.favorite) > 0,
+        defaultView: view.default === true,
+      };
+    });
+
+  const categoryRank = (key) => {
+    const idx = CUSTOM_VIEW_CATEGORY_ORDER.indexOf(key);
+    return idx === -1 ? CUSTOM_VIEW_CATEGORY_ORDER.length : idx;
+  };
+
+  /** Map groupLabel back to category key for ordering. */
+  const labelToKey = new Map(
+    Object.entries({ ...CUSTOM_VIEW_CATEGORY_LABELS, ...translations }).map(
+      ([key, label]) => [label, key],
+    ),
+  );
+
+  views.sort((a, b) => {
+    const aKey = labelToKey.get(a.groupLabel ?? "") ?? "";
+    const bKey = labelToKey.get(b.groupLabel ?? "") ?? "";
+    const byCat = categoryRank(aKey) - categoryRank(bKey);
+    if (byCat !== 0) return byCat;
+    if (Boolean(a.favorite) !== Boolean(b.favorite)) return a.favorite ? -1 : 1;
+    return a.label.localeCompare(b.label);
+  });
+
+  return views;
 }
 
 /** @returns {Promise<{ sections: import("@/lib/contractFilterTypes").ContractFilterSection[]; fields: import("@/lib/contractFilterTypes").ContractFilterFieldMeta[]; source: "zoho" | "fallback" }>} */
