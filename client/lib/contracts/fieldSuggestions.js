@@ -47,7 +47,13 @@ function lookupObjectName(raw) {
   if (raw == null || raw === "") return "";
   if (typeof raw === "object" && !Array.isArray(raw)) {
     const name =
-      raw.name ?? raw.Name ?? raw.full_name ?? raw.display_value ?? raw.Deal_Name ?? raw.SOWID;
+      raw.name ??
+      raw.Name ??
+      raw.Product_Name ??
+      raw.full_name ??
+      raw.display_value ??
+      raw.Deal_Name ??
+      raw.SOWID;
     if (name != null && String(name).trim() !== "") return String(name).trim();
     return "";
   }
@@ -73,7 +79,15 @@ function labelFromRelatedRow(row, displayFields) {
     const value = displayValue(row?.[key]);
     if (value && !isIdOnlyLabel(value, String(row?.id ?? ""))) return value;
   }
-  for (const key of ["Name", "Deal_Name", "SOWID", "Account_Name", "Vendor_Name", "full_name"]) {
+  for (const key of [
+    "Name",
+    "Product_Name",
+    "Deal_Name",
+    "SOWID",
+    "Account_Name",
+    "Vendor_Name",
+    "full_name",
+  ]) {
     const value = displayValue(row?.[key]);
     if (value && !isIdOnlyLabel(value, String(row?.id ?? ""))) return value;
   }
@@ -507,8 +521,18 @@ async function fetchLookupModuleSuggestions(config, query) {
 function lookupConfigForField(fieldApiName, lookupModule = "") {
   const known = getKnownLookupFieldConfig(fieldApiName);
   if (lookupModule) {
+    // Products CRM module uses Product_Name (legacy widget: Product_Name:starts_with:…).
     const displayFields =
-      known?.searchFields ?? ["Name", "Vendor_Name", "SOWID", "Deal_Name", "Account_Name"];
+      lookupModule === "Products"
+        ? ["Product_Name", "Name"]
+        : (known?.searchFields ?? [
+            "Name",
+            "Vendor_Name",
+            "SOWID",
+            "Deal_Name",
+            "Account_Name",
+            "Product_Name",
+          ]);
     return {
       module: lookupModule,
       fields: ["id", ...displayFields],

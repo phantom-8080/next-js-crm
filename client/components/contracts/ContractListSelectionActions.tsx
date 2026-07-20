@@ -5,6 +5,10 @@ import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
+  ADD_MASS_SUBFORM_BUTTON_LABEL,
+  AddMassSubformWidget,
+} from "@/widgets/add-mass-subform";
+import {
   CREATE_NO_INVOICE_NEEDED_BUTTON_LABEL,
   CreateVendorInvoiceRecordsWidget,
 } from "@/widgets/create-vendor-invoice-records";
@@ -22,7 +26,7 @@ const RENEW_MENU_ITEMS = [
   "Test mass widget",
   "Missing Invoice Email",
   OLIO_MASS_UPDATE_BUTTON_LABEL,
-  "Add SubForm",
+  ADD_MASS_SUBFORM_BUTTON_LABEL,
   "Test Olio Mass Update",
 ] as const;
 
@@ -41,6 +45,7 @@ export function ContractListSelectionActions({
   const [renewOpen, setRenewOpen] = useState(false);
   const [vendorInvoiceWidgetOpen, setVendorInvoiceWidgetOpen] = useState(false);
   const [olioMassUpdateOpen, setOlioMassUpdateOpen] = useState(false);
+  const [addMassSubformOpen, setAddMassSubformOpen] = useState(false);
   const renewRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -80,6 +85,12 @@ export function ContractListSelectionActions({
       action === "Test Olio Mass Update"
     ) {
       setOlioMassUpdateOpen(true);
+      onAction?.(action);
+      return;
+    }
+
+    if (action === ADD_MASS_SUBFORM_BUTTON_LABEL) {
+      setAddMassSubformOpen(true);
       onAction?.(action);
       return;
     }
@@ -177,6 +188,13 @@ export function ContractListSelectionActions({
       <OlioMassUpdateWidget
         open={olioMassUpdateOpen}
         onClose={() => setOlioMassUpdateOpen(false)}
+        selectedRecordIds={selectedRecordIds}
+        module="Contracts"
+      />
+
+      <AddMassSubformWidget
+        open={addMassSubformOpen}
+        onClose={() => setAddMassSubformOpen(false)}
         selectedRecordIds={selectedRecordIds}
         module="Contracts"
       />

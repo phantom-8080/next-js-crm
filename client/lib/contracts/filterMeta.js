@@ -23,6 +23,21 @@ export const KNOWN_LOOKUP_FILTER_FIELDS = {
   Company_Name: { kind: "lookup", module: "Accounts", searchFields: ["Account_Name", "Name"] },
   SOW_Name: { kind: "lookup", module: "Deals", searchFields: ["SOWID", "Deal_Name", "Name"] },
   SOW: { kind: "lookup", module: "Deals", searchFields: ["SOWID", "Deal_Name", "Name"] },
+  OurServices: {
+    kind: "lookup",
+    module: "Products",
+    searchFields: ["Product_Name", "Name"],
+  },
+  Our_Services_SubForm: {
+    kind: "lookup",
+    module: "Products",
+    searchFields: ["Product_Name", "Name"],
+  },
+  Scope_of_Work: {
+    kind: "lookup",
+    module: "Products",
+    searchFields: ["Product_Name", "Name"],
+  },
   Owner: { kind: "user" },
   Contract_Owner: { kind: "user" },
   Ops_Owner: { kind: "user" },
