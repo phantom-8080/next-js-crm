@@ -7,6 +7,7 @@ import { CREATE_VENDOR_INVOICE_RECORDS_WIDGET } from "@/widgets/create-vendor-in
 import { MASS_RENEWAL_CONTRACTS_WIDGET } from "@/widgets/mass-renewal-contracts";
 import { MISSING_INVOICE_EMAIL_WIDGET } from "@/widgets/missing-invoice-email";
 import { OLIO_MASS_UPDATE_WIDGET } from "@/widgets/olio-mass-update";
+import { PO_ADDENDUM_WIDGET } from "@/widgets/po-addendum";
 import { SEND_MESSAGE_WIDGET } from "@/widgets/send-message";
 
 /**
@@ -23,6 +24,7 @@ export const CRM_WIDGETS = [
   SEND_MESSAGE_WIDGET,
   CREATE_CONTRACT_PDF_WIDGET,
   COMPLIANCE_FIELDS_WIDGET,
+  PO_ADDENDUM_WIDGET,
 ] as const satisfies readonly CrmWidgetDefinition[];
 
 export type CrmWidgetId = (typeof CRM_WIDGETS)[number]["id"];
@@ -74,3 +76,7 @@ export {
   COMPLIANCE_FIELDS_WIDGET,
   ComplianceFieldsWidget,
 } from "@/widgets/compliance-fields";
+export {
+  PO_ADDENDUM_WIDGET,
+  PoAddendumWidget,
+} from "@/widgets/po-addendum";

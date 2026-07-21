@@ -15,6 +15,10 @@ import {
   COMPLIANCE_FIELDS_BUTTON_LABEL,
   ComplianceFieldsWidget,
 } from "@/widgets/compliance-fields";
+import {
+  PO_ADDENDUM_BUTTON_LABEL,
+  PoAddendumWidget,
+} from "@/widgets/po-addendum";
 
 /** Record-view custom buttons (Zoho-style labels). */
 export const CONTRACT_RECORD_BUTTONS = [
@@ -28,13 +32,20 @@ export const CONTRACT_RECORD_BUTTONS = [
   "Status Client Sending RFP",
   "Status Sourcing Vendor",
   COMPLIANCE_FIELDS_BUTTON_LABEL,
-  "PO Addendum",
+  PO_ADDENDUM_BUTTON_LABEL,
   "Status Client Negotiations",
   "Status Vendor Compliance",
   "Clone Contract",
 ] as const;
 
 export type ContractRecordButtonLabel = (typeof CONTRACT_RECORD_BUTTONS)[number];
+
+const CONFIGURED_RECORD_BUTTONS = new Set<string>([
+  SEND_MESSAGE_BUTTON_LABEL,
+  CREATE_CONTRACT_PDF_BUTTON_LABEL,
+  COMPLIANCE_FIELDS_BUTTON_LABEL,
+  PO_ADDENDUM_BUTTON_LABEL,
+]);
 
 type ContractRecordActionsProps = {
   className?: string;
@@ -52,8 +63,13 @@ export function ContractRecordActions({
   const [sendMessageOpen, setSendMessageOpen] = useState(false);
   const [createContractPdfOpen, setCreateContractPdfOpen] = useState(false);
   const [complianceFieldsOpen, setComplianceFieldsOpen] = useState(false);
+  const [poAddendumOpen, setPoAddendumOpen] = useState(false);
+  const [inProgressMessage, setInProgressMessage] = useState<string | null>(
+    null,
+  );
   const rootRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -95,6 +111,21 @@ export function ContractRecordActions({
     return () => cancelAnimationFrame(frame);
   }, [open]);
 
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
+  }, []);
+
+  function showInProgress(action: string) {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setInProgressMessage(`“${action}” is in progress — coming soon.`);
+    toastTimerRef.current = setTimeout(() => {
+      setInProgressMessage(null);
+      toastTimerRef.current = null;
+    }, 2800);
+  }
+
   function handleAction(action: ContractRecordButtonLabel) {
     setOpen(false);
 
@@ -114,6 +145,16 @@ export function ContractRecordActions({
       setComplianceFieldsOpen(true);
       onAction?.(action, recordId);
       return;
+    }
+
+    if (action === PO_ADDENDUM_BUTTON_LABEL) {
+      setPoAddendumOpen(true);
+      onAction?.(action, recordId);
+      return;
+    }
+
+    if (!CONFIGURED_RECORD_BUTTONS.has(action)) {
+      showInProgress(action);
     }
 
     onAction?.(action, recordId);
@@ -216,6 +257,23 @@ export function ContractRecordActions({
         selectedRecordIds={[recordId]}
         module="Contracts"
       />
+
+      <PoAddendumWidget
+        open={poAddendumOpen}
+        onClose={() => setPoAddendumOpen(false)}
+        selectedRecordIds={[recordId]}
+        module="Contracts"
+      />
+
+      {inProgressMessage ?
+        <div
+          className="fixed bottom-4 left-1/2 z-[110] max-w-[min(24rem,calc(100vw-2rem))] -translate-x-1/2 rounded-lg border border-amber-500/30 bg-amber-50 px-4 py-2.5 text-center text-sm text-amber-900 shadow-lg dark:border-amber-500/40 dark:bg-amber-950/90 dark:text-amber-100"
+          role="status"
+          aria-live="polite"
+        >
+          {inProgressMessage}
+        </div>
+      : null}
     </>
   );
 }

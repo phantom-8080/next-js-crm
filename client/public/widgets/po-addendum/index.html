@@ -1,0 +1,1030 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>PO Addendum</title>
+
+    <script src="/widgets/po-addendum/zoho-shim.js"></script>
+
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 0;
+        padding: 20px;
+        background: #f7f8fa;
+        color: #222;
+      }
+
+      .container {
+        background: #fff;
+        border-radius: 10px;
+        padding: 20px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+      }
+
+      h2 {
+        margin-top: 0;
+        font-size: 20px;
+        color: #111827;
+      }
+
+      .message {
+        padding: 14px;
+        background: #fff7ed;
+        border: 1px solid #fed7aa;
+        border-radius: 8px;
+        color: #9a3412;
+        margin-top: 12px;
+      }
+
+      .message.success {
+        background: #ecfdf5;
+        border-color: #a7f3d0;
+        color: #065f46;
+      }
+
+      .subtitle {
+        font-size: 14px;
+        color: #6b7280;
+        margin: 4px 0 0;
+        line-height: 1.45;
+      }
+
+      .action-bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        justify-content: space-between;
+        margin-top: 16px;
+        padding: 12px 14px;
+        background: #f9fafb;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+      }
+
+      .action-bar-left,
+      .action-bar-right {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .col-name-input,
+      .field-type-select {
+        padding: 8px 10px;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+        font-size: 14px;
+        font-family: inherit;
+        background: #fff;
+      }
+
+      .col-name-input {
+        min-width: 140px;
+      }
+
+      .field-type-select {
+        min-width: 160px;
+      }
+
+      .col-name-input:focus,
+      .field-type-select:focus {
+        outline: none;
+        border-color: #2563eb;
+        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+      }
+
+      .inline-field {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .btn {
+        font-size: 14px;
+        padding: 9px 16px;
+        border-radius: 6px;
+        border: 1px solid #d1d5db;
+        background: #fff;
+        color: #111827;
+        cursor: pointer;
+        font-weight: 500;
+      }
+
+      .btn:hover:not(:disabled) {
+        background: #f9fafb;
+      }
+
+      .btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .btn-primary {
+        background: #2563eb;
+        border-color: #2563eb;
+        color: #fff;
+      }
+
+      .btn-primary:hover:not(:disabled) {
+        background: #1d4ed8;
+      }
+
+      .btn-secondary {
+        background: #fff;
+        border-color: #2563eb;
+        color: #2563eb;
+      }
+
+      .btn-secondary:hover:not(:disabled) {
+        background: #eff6ff;
+      }
+
+
+      .table-wrap {
+        overflow-x: auto;
+        margin-top: 15px;
+      }
+
+      table.subform {
+        width: 100%;
+        border-collapse: collapse;
+        background: #fff;
+        font-size: 14px;
+      }
+
+      table.subform th {
+        background: #f3f4f6;
+        color: #374151;
+        text-align: left;
+        padding: 10px 12px;
+        border: 1px solid #e5e7eb;
+        vertical-align: middle;
+        font-size: 13px;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+
+      table.subform td {
+        padding: 8px 10px;
+        border: 1px solid #e5e7eb;
+        vertical-align: middle;
+      }
+
+      table.subform input.cell-input {
+        width: 100%;
+        min-width: 90px;
+        box-sizing: border-box;
+        padding: 8px 10px;
+        border: 1px solid #e5e7eb;
+        border-radius: 6px;
+        font-size: 14px;
+        font-family: inherit;
+      }
+
+      table.subform input.cell-input:focus,
+      table.subform select.cell-input:focus,
+      table.subform textarea.cell-input:focus {
+        outline: none;
+        border-color: #2563eb;
+        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+      }
+
+      table.subform input.cell-input.cell-invalid {
+        border-color: #dc2626;
+        box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.12);
+      }
+
+      table.subform select.cell-input {
+        width: 100%;
+        min-width: 90px;
+        box-sizing: border-box;
+        padding: 8px 10px;
+        border: 1px solid #e5e7eb;
+        border-radius: 6px;
+        font-size: 14px;
+        font-family: inherit;
+        background: #fff;
+      }
+
+      table.subform textarea.cell-input {
+        width: 100%;
+        min-width: 90px;
+        min-height: 56px;
+        box-sizing: border-box;
+        padding: 8px 10px;
+        border: 1px solid #e5e7eb;
+        border-radius: 6px;
+        font-size: 14px;
+        font-family: inherit;
+        resize: vertical;
+      }
+
+      .th-field-type {
+        display: block;
+        font-weight: 500;
+        font-size: 11px;
+        color: #6b7280;
+        margin-top: 2px;
+      }
+
+      .save-footer {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 12px;
+        margin-top: 16px;
+        padding-top: 4px;
+      }
+
+      .save-footer.hidden {
+        display: none;
+      }
+
+      .col-actions {
+        width: auto;
+        min-width: 72px;
+        text-align: center;
+        white-space: nowrap;
+      }
+
+      .row-action-buttons {
+        display: inline-flex;
+        gap: 6px;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .btn-add-plus {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        padding: 0;
+        border: 1px solid #bbf7d0;
+        border-radius: 6px;
+        background: #fff;
+        color: #16a34a;
+        font-size: 18px;
+        line-height: 1;
+        cursor: pointer;
+      }
+
+      .btn-add-plus:hover:not(:disabled) {
+        background: #f0fdf4;
+        border-color: #4ade80;
+      }
+
+      .btn-add-plus:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+
+      .btn-remove-x {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        padding: 0;
+        border: 1px solid #fecaca;
+        border-radius: 6px;
+        background: #fff;
+        color: #dc2626;
+        font-size: 18px;
+        line-height: 1;
+        cursor: pointer;
+      }
+
+      .btn-remove-x:hover:not(:disabled) {
+        background: #fef2f2;
+        border-color: #f87171;
+      }
+
+      .btn-remove-x:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+
+      .save-status {
+        font-size: 13px;
+        color: #6b7280;
+        margin-left: 4px;
+      }
+
+      .save-status.ok {
+        color: #059669;
+      }
+
+      .save-status.err {
+        color: #dc2626;
+      }
+
+      .small {
+        font-size: 12px;
+        color: #6b7280;
+        margin-top: 12px;
+      }
+
+      .loader-wrap {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 16px;
+        padding: 48px 20px;
+        min-height: 120px;
+      }
+
+      .loader-spinner {
+        width: 40px;
+        height: 40px;
+        border: 3px solid #e5e7eb;
+        border-top-color: #2563eb;
+        border-radius: 50%;
+        animation: loader-spin 0.75s linear infinite;
+      }
+
+      .loader-label {
+        font-size: 14px;
+        color: #6b7280;
+        margin: 0;
+      }
+
+      @keyframes loader-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="container">
+      <h2>PO Addendum</h2>
+      <p class="subtitle">Fill in rows below, then save to this contract.</p>
+      <div id="content">
+        <div class="loader-wrap" role="status" aria-live="polite" aria-busy="true">
+          <div class="loader-spinner" aria-hidden="true"></div>
+          <p class="loader-label">Loading PO Addendum data…</p>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const FIELD_API_NAME = "PO_Addendum";
+      const FALLBACK_MODULE = "Contracts";
+
+      const FIELD_TYPE_OPTIONS = [
+        { value: "string", label: "Single Line" },
+        { value: "textarea", label: "Multi Line" },
+        { value: "email", label: "Email" },
+        { value: "phone", label: "Phone" },
+        { value: "url", label: "URL" },
+        { value: "number", label: "Number" },
+        { value: "date", label: "Date" },
+        { value: "boolean", label: "Checkbox" },
+      ];
+
+      function isNumericFieldType(type) {
+        return normalizeFieldType(type) === "number";
+      }
+
+      function normalizeFieldType(type) {
+        if (type === "checkbox") return "boolean";
+        if (
+          type === "longinteger" ||
+          type === "decimal" ||
+          type === "currency" ||
+          type === "percent"
+        ) {
+          return "number";
+        }
+        if (type === "datetime") return "date";
+        return type || "string";
+      }
+      function fieldTypeLabel(type) {
+        const found = FIELD_TYPE_OPTIONS.find(function (o) {
+          return o.value === type;
+        });
+        return found ? found.label : type;
+      }
+
+      function emptyGrid() {
+        return { columns: [], rows: [], fieldTypes: {} };
+      }
+
+      function normalizeFieldTypes(columns, fieldTypes) {
+        const out = Object.assign({}, fieldTypes || {});
+        columns.forEach(function (col) {
+          if (!out[col]) out[col] = "string";
+          else out[col] = normalizeFieldType(out[col]);
+        });
+        return out;
+      }
+
+      function isPartialNumber(value) {
+        if (value === "" || value === "-" || value === "." || value === "-.") return true;
+        return /^-?\d*(\.\d*)?$/.test(value);
+      }
+
+      function isCompleteNumber(value) {
+        if (value === "") return true;
+        return /^-?\d+(\.\d+)?$/.test(value);
+      }
+
+      function isValidEmail(value) {
+        if (value === "") return true;
+        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+      }
+
+      function isValidPhone(value) {
+        if (value === "") return true;
+        return /^[\d\s+\-().extEXT]*$/.test(value);
+      }
+
+      function isValidUrl(value) {
+        if (value === "") return true;
+        try {
+          const u = new URL(value.indexOf("://") === -1 ? "https://" + value : value);
+          return u.hostname.length > 0;
+        } catch (e) {
+          return false;
+        }
+      }
+
+      function isCellValueValid(type, val) {
+        type = normalizeFieldType(type);
+        if (isNumericFieldType(type)) return isCompleteNumber(val);
+        if (type === "email") return isValidEmail(val);
+        if (type === "phone") return isValidPhone(val);
+        if (type === "url") return isValidUrl(val);
+        if (type === "boolean") {
+          return val === "" || val === "true" || val === "false";
+        }
+        return true;
+      }
+
+      function gridHasInvalidCells(columns, rows, fieldTypes) {
+        for (let r = 0; r < rows.length; r++) {
+          for (let c = 0; c < columns.length; c++) {
+            const col = columns[c];
+            const type = normalizeFieldType(fieldTypes[col] || "string");
+            const val = rows[r][col] != null ? String(rows[r][col]) : "";
+            if (!isCellValueValid(type, val)) return true;
+          }
+        }
+        return false;
+      }
+
+      function isPlainObject(value) {
+        return value !== null && typeof value === "object" && !Array.isArray(value);
+      }
+
+      function parseJsonValue(value) {
+        if (!value) return null;
+        if (typeof value === "object") return value;
+        try {
+          return JSON.parse(value);
+        } catch (e) {
+          return null;
+        }
+      }
+
+      function isPeriodRowGrid(data) {
+        const keys = Object.keys(data || {});
+        if (keys.length === 0) return false;
+        return keys.every(function (rowKey) {
+          const row = data[rowKey];
+          if (!isPlainObject(row)) return false;
+          return Object.keys(row).every(function (fieldKey) {
+            const cell = row[fieldKey];
+            return cell === null || cell === undefined || typeof cell !== "object";
+          });
+        });
+      }
+
+      function resolvePeriodRowGrid(data) {
+        if (!isPlainObject(data)) return null;
+        if (isPeriodRowGrid(data)) return data;
+        const topKeys = Object.keys(data);
+        for (let i = 0; i < topKeys.length; i++) {
+          const inner = data[topKeys[i]];
+          if (isPeriodRowGrid(inner)) return inner;
+        }
+        return null;
+      }
+
+      function uniqueColumnName(columns, base) {
+        let name = base;
+        let n = 1;
+        while (columns.indexOf(name) !== -1) {
+          n += 1;
+          name = base + " " + n;
+        }
+        return name;
+      }
+
+      /** @returns {{ columns: string[], rows: Record<string, string>[] }} */
+      function parseInitialGrid(jsonData) {
+        if (!jsonData) {
+          return emptyGrid();
+        }
+
+        if (Array.isArray(jsonData.columns) && Array.isArray(jsonData.rows)) {
+          const columns = jsonData.columns.map(String);
+          const fieldTypes = normalizeFieldTypes(columns, jsonData.fieldTypes);
+          const rows = jsonData.rows.map(function (row) {
+            const out = {};
+            columns.forEach(function (col) {
+              out[col] = row && row[col] != null ? String(row[col]) : "";
+            });
+            return out;
+          });
+          return { columns: columns, rows: rows, fieldTypes: fieldTypes };
+        }
+
+        const periodGrid = resolvePeriodRowGrid(jsonData);
+        if (periodGrid) {
+          const rowKeys = Object.keys(periodGrid);
+          const fieldKeys = [];
+          rowKeys.forEach(function (rk) {
+            Object.keys(periodGrid[rk] || {}).forEach(function (k) {
+              if (fieldKeys.indexOf(k) === -1) fieldKeys.push(k);
+            });
+          });
+          const columns = ["Period"].concat(fieldKeys);
+          const fieldTypes = {};
+          columns.forEach(function (col) {
+            fieldTypes[col] = "string";
+          });
+          const rows = rowKeys.map(function (rk) {
+            const row = { Period: rk };
+            fieldKeys.forEach(function (k) {
+              row[k] =
+                periodGrid[rk][k] != null ? String(periodGrid[rk][k]) : "";
+            });
+            return row;
+          });
+          return { columns: columns, rows: rows, fieldTypes: fieldTypes };
+        }
+
+        if (Array.isArray(jsonData) && jsonData.length > 0 && isPlainObject(jsonData[0])) {
+          const columns = [];
+          jsonData.forEach(function (row) {
+            Object.keys(row || {}).forEach(function (k) {
+              if (columns.indexOf(k) === -1) columns.push(k);
+            });
+          });
+          const fieldTypes = normalizeFieldTypes(columns, {});
+          const rows = jsonData.map(function (row) {
+            const out = {};
+            columns.forEach(function (col) {
+              out[col] = row && row[col] != null ? String(row[col]) : "";
+            });
+            return out;
+          });
+          return { columns: columns, rows: rows, fieldTypes: fieldTypes };
+        }
+
+        return emptyGrid();
+      }
+
+      function buildPayload(columns, rows, fieldTypes) {
+        return {
+          columns: columns.slice(),
+          fieldTypes: normalizeFieldTypes(columns, fieldTypes),
+          rows: rows.map(function (row) {
+            const out = {};
+            columns.forEach(function (col) {
+              out[col] = row[col] != null ? String(row[col]) : "";
+            });
+            return out;
+          }),
+        };
+      }
+
+      function mountSubform(container, entityName, entityId, initialGrid) {
+        const state = {
+          columns: initialGrid.columns.slice(),
+          rows: initialGrid.rows.map(function (r) {
+            return Object.assign({}, r);
+          }),
+          fieldTypes: Object.assign({}, initialGrid.fieldTypes || {}),
+          entityName: entityName,
+          entityId: entityId,
+          saving: false,
+        };
+
+        function markInvalid(input, row, colName, lastGood) {
+          input.value = lastGood;
+          input.classList.add("cell-invalid");
+        }
+
+        function appendCellInput(td, colName, row) {
+          const type = normalizeFieldType(state.fieldTypes[colName] || "string");
+          const current = row[colName] != null ? String(row[colName]) : "";
+
+          if (type === "boolean") {
+            const select = document.createElement("select");
+            select.className = "cell-input";
+            [
+              { v: "", t: "—" },
+              { v: "true", t: "Yes" },
+              { v: "false", t: "No" },
+            ].forEach(function (opt) {
+              const o = document.createElement("option");
+              o.value = opt.v;
+              o.textContent = opt.t;
+              if (current === opt.v) o.selected = true;
+              select.appendChild(o);
+            });
+            select.addEventListener("change", function () {
+              row[colName] = select.value;
+            });
+            td.appendChild(select);
+            return;
+          }
+
+          if (type === "textarea") {
+            const ta = document.createElement("textarea");
+            ta.className = "cell-input";
+            ta.value = current;
+            ta.rows = 2;
+            ta.addEventListener("input", function () {
+              row[colName] = ta.value;
+            });
+            td.appendChild(ta);
+            return;
+          }
+
+          const input = document.createElement("input");
+          input.className = "cell-input";
+          input.value = current;
+
+          function bindValidatedInput(validatePartial, validateComplete) {
+            input.addEventListener("input", function () {
+              if (!validatePartial(input.value)) {
+                markInvalid(input, row, colName, row[colName] != null ? String(row[colName]) : "");
+                return;
+              }
+              input.classList.remove("cell-invalid");
+              row[colName] = input.value;
+            });
+            input.addEventListener("blur", function () {
+              if (!validateComplete(input.value)) {
+                input.classList.add("cell-invalid");
+              } else {
+                input.classList.remove("cell-invalid");
+              }
+            });
+          }
+
+          if (type === "date") {
+            input.type = "date";
+            input.addEventListener("change", function () {
+              row[colName] = input.value;
+            });
+          } else if (type === "number") {
+            input.type = "text";
+            input.inputMode = "decimal";
+            bindValidatedInput(isPartialNumber, isCompleteNumber);
+          } else if (type === "email") {
+            input.type = "email";
+            input.addEventListener("input", function () {
+              row[colName] = input.value;
+              input.classList.toggle("cell-invalid", !isValidEmail(input.value));
+            });
+          } else if (type === "phone") {
+            input.type = "tel";
+            bindValidatedInput(isValidPhone, isValidPhone);
+          } else if (type === "url") {
+            input.type = "url";
+            input.placeholder = "https://";
+            input.addEventListener("input", function () {
+              row[colName] = input.value;
+              input.classList.toggle("cell-invalid", !isValidUrl(input.value));
+            });
+          } else {
+            input.type = "text";
+            input.addEventListener("input", function () {
+              row[colName] = input.value;
+            });
+          }
+
+          td.appendChild(input);
+        }
+
+        container.innerHTML = "";
+        const root = document.createElement("div");
+        root.className = "subform-root";
+        container.appendChild(root);
+
+        const actionBar = document.createElement("div");
+        actionBar.className = "action-bar";
+
+        const left = document.createElement("div");
+        left.className = "action-bar-left";
+
+        const colField = document.createElement("div");
+        colField.className = "inline-field";
+        const colNameInput = document.createElement("input");
+        colNameInput.type = "text";
+        colNameInput.className = "col-name-input";
+        colNameInput.placeholder = "Field name";
+        colNameInput.setAttribute("aria-label", "Field name");
+
+        const fieldTypeSelect = document.createElement("select");
+        fieldTypeSelect.className = "field-type-select";
+        fieldTypeSelect.setAttribute("aria-label", "Field type");
+        FIELD_TYPE_OPTIONS.forEach(function (opt) {
+          const o = document.createElement("option");
+          o.value = opt.value;
+          o.textContent = opt.label;
+          fieldTypeSelect.appendChild(o);
+        });
+
+        const btnAddColumn = document.createElement("button");
+        btnAddColumn.type = "button";
+        btnAddColumn.className = "btn btn-secondary";
+        btnAddColumn.textContent = "Add Field";
+        colField.appendChild(fieldTypeSelect);
+        colField.appendChild(colNameInput);
+        colField.appendChild(btnAddColumn);
+
+        const btnAddRow = document.createElement("button");
+        btnAddRow.type = "button";
+        btnAddRow.className = "btn btn-secondary";
+        btnAddRow.textContent = "Add row";
+
+        left.appendChild(colField);
+        left.appendChild(btnAddRow);
+        actionBar.appendChild(left);
+
+        const tableWrap = document.createElement("div");
+        tableWrap.className = "table-wrap";
+
+        const saveFooter = document.createElement("div");
+        saveFooter.className = "save-footer hidden";
+        const saveStatus = document.createElement("span");
+        saveStatus.className = "save-status";
+        saveStatus.setAttribute("aria-live", "polite");
+        const btnSave = document.createElement("button");
+        btnSave.type = "button";
+        btnSave.className = "btn btn-primary";
+        btnSave.textContent = "Save";
+        saveFooter.appendChild(btnSave);
+        saveFooter.appendChild(saveStatus);
+
+        root.appendChild(actionBar);
+        root.appendChild(tableWrap);
+        root.appendChild(saveFooter);
+
+        function persistToCrm() {
+          if (state.saving) {
+            return Promise.reject(new Error("Save in progress"));
+          }
+          if (gridHasInvalidCells(state.columns, state.rows, state.fieldTypes)) {
+            saveStatus.textContent = "Fix invalid fields before saving";
+            saveStatus.className = "save-status err";
+            saveFooter.classList.remove("hidden");
+            return Promise.reject(new Error("Validation failed"));
+          }
+          state.saving = true;
+          saveStatus.textContent = "Saving…";
+          saveStatus.className = "save-status";
+          renderAll();
+
+          const jsonString = JSON.stringify(
+            buildPayload(state.columns, state.rows, state.fieldTypes),
+          );
+
+          return ZOHO.CRM.API.updateRecord({
+            Entity: state.entityName,
+            APIData: {
+              id: state.entityId,
+              [FIELD_API_NAME]: jsonString,
+            },
+          })
+            .then(function (res) {
+              console.log("Save response:", res);
+              saveStatus.textContent = "Saved";
+              saveStatus.className = "save-status ok";
+              return res;
+            })
+            .catch(function (err) {
+              console.error("Save error:", err);
+              saveStatus.textContent = "Save failed";
+              saveStatus.className = "save-status err";
+              throw err;
+            })
+            .finally(function () {
+              state.saving = false;
+              renderAll();
+            });
+        }
+
+        function addColumn() {
+          const trimmed = colNameInput.value.trim();
+          if (!trimmed) {
+            colNameInput.focus();
+            return;
+          }
+          const name = uniqueColumnName(state.columns, trimmed);
+          const type = fieldTypeSelect.value || "string";
+          state.columns.push(name);
+          state.fieldTypes[name] = type;
+          state.rows.forEach(function (row) {
+            row[name] = "";
+          });
+          colNameInput.value = "";
+          fieldTypeSelect.value = "string";
+          renderAll();
+        }
+
+        function createEmptyRow() {
+          const row = {};
+          state.columns.forEach(function (col) {
+            row[col] = "";
+          });
+          return row;
+        }
+
+        function addRow() {
+          if (state.columns.length === 0) return;
+          state.rows.push(createEmptyRow());
+          renderAll();
+        }
+
+        function insertRowAfter(rowIndex) {
+          if (state.columns.length === 0) return;
+          state.rows.splice(rowIndex + 1, 0, createEmptyRow());
+          renderAll();
+        }
+
+        function syncToolbar() {
+          btnAddRow.disabled = state.columns.length === 0 || state.saving;
+          btnAddColumn.disabled = state.saving;
+          btnSave.disabled = state.saving;
+          if (state.columns.length === 0) {
+            saveFooter.classList.add("hidden");
+          } else {
+            saveFooter.classList.remove("hidden");
+          }
+        }
+
+        function renderTable() {
+          tableWrap.innerHTML = "";
+          syncToolbar();
+          if (state.columns.length === 0) {
+            tableWrap.innerHTML =
+              '<p class="subtitle" style="margin-top:12px">Enter a field name, choose its type, click <strong>Add Field</strong>, then <strong>Add row</strong>.</p>';
+            return;
+          }
+
+          const table = document.createElement("table");
+          table.className = "subform";
+
+          const thead = document.createElement("thead");
+          const headRow = document.createElement("tr");
+          state.columns.forEach(function (colName) {
+            const th = document.createElement("th");
+            const nameLine = document.createElement("span");
+            nameLine.textContent = colName;
+            th.appendChild(nameLine);
+            const typeSpan = document.createElement("span");
+            typeSpan.className = "th-field-type";
+            typeSpan.textContent = fieldTypeLabel(normalizeFieldType(state.fieldTypes[colName] || "string"));
+            th.appendChild(typeSpan);
+            headRow.appendChild(th);
+          });
+          const thActions = document.createElement("th");
+          thActions.className = "col-actions";
+          thActions.textContent = "Actions";
+          headRow.appendChild(thActions);
+          thead.appendChild(headRow);
+          table.appendChild(thead);
+
+          const tbody = document.createElement("tbody");
+          state.rows.forEach(function (row, rowIndex) {
+            const tr = document.createElement("tr");
+            state.columns.forEach(function (colName) {
+              const td = document.createElement("td");
+              appendCellInput(td, colName, row);
+              tr.appendChild(td);
+            });
+
+            const tdAct = document.createElement("td");
+            tdAct.className = "col-actions";
+            const rowActions = document.createElement("div");
+            rowActions.className = "row-action-buttons";
+
+            const addRowBtn = document.createElement("button");
+            addRowBtn.type = "button";
+            addRowBtn.className = "btn-add-plus";
+            addRowBtn.title = "Add row below";
+            addRowBtn.setAttribute("aria-label", "Add row below");
+            addRowBtn.textContent = "+";
+            addRowBtn.disabled = state.saving;
+            addRowBtn.addEventListener("click", function () {
+              insertRowAfter(rowIndex);
+            });
+
+            const removeRow = document.createElement("button");
+            removeRow.type = "button";
+            removeRow.className = "btn-remove-x";
+            removeRow.title = "Remove row";
+            removeRow.setAttribute("aria-label", "Remove row");
+            removeRow.textContent = "×";
+            removeRow.disabled = state.saving;
+            removeRow.addEventListener("click", function () {
+              const isLastRow = state.rows.length === 1;
+              const message = isLastRow
+                ? "Delete this row? All fields will be cleared and changes will be saved to the contract."
+                : "Delete this row? Changes will be saved to the contract.";
+              if (!window.confirm(message)) {
+                return;
+              }
+              state.rows.splice(rowIndex, 1);
+              if (state.rows.length === 0) {
+                state.columns = [];
+                state.fieldTypes = {};
+              }
+              persistToCrm().catch(function () {});
+            });
+            rowActions.appendChild(addRowBtn);
+            rowActions.appendChild(removeRow);
+            tdAct.appendChild(rowActions);
+            tr.appendChild(tdAct);
+            tbody.appendChild(tr);
+          });
+          table.appendChild(tbody);
+          tableWrap.appendChild(table);
+        }
+
+        function renderAll() {
+          renderTable();
+        }
+
+        btnAddColumn.addEventListener("click", addColumn);
+        colNameInput.addEventListener("keydown", function (e) {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            addColumn();
+          }
+        });
+        btnAddRow.addEventListener("click", addRow);
+
+        btnSave.addEventListener("click", function () {
+          persistToCrm().catch(function () {});
+        });
+
+        renderAll();
+      }
+
+      ZOHO.embeddedApp.on("PageLoad", function (data) {
+        const content = document.getElementById("content");
+
+        const entityId = Array.isArray(data.EntityId) ? data.EntityId[0] : data.EntityId;
+        const entityName = data.Entity || FALLBACK_MODULE;
+
+        if (!entityId) {
+          content.innerHTML =
+            '<div class="message">Record ID not found. Open this widget from a Contract record.</div>';
+          return;
+        }
+
+        ZOHO.CRM.API.getRecord({
+          Entity: entityName,
+          RecordID: entityId,
+        })
+          .then(function (response) {
+            const record =
+              response && response.data && response.data.length > 0 ? response.data[0] : null;
+
+            if (!record) {
+              content.innerHTML =
+                '<div class="message">Could not fetch the Contract record.</div>';
+              return;
+            }
+
+            const fieldValue = record[FIELD_API_NAME];
+            const jsonData = parseJsonValue(fieldValue);
+            const grid = parseInitialGrid(jsonData);
+
+            mountSubform(content, entityName, entityId, grid);
+          })
+          .catch(function (error) {
+            console.error("Error:", error);
+            content.innerHTML =
+              '<div class="message">Error while loading data. Check console logs.</div>';
+          });
+      });
+
+      ZOHO.embeddedApp.init();
+    </script>
+  </body>
+</html>
