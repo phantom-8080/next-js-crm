@@ -33,22 +33,24 @@ import {
   looksLikeHttpUrl,
 } from "@/lib/contracts/columns";
 
-type ContractStatus = "Active" | "Closed";
+type ContractStatusTone = "active" | "closed";
 
-function normalizeStatus(value: string): ContractStatus {
-  return value.trim().toLowerCase() === "closed" ? "Closed" : "Active";
+function statusTone(value: string): ContractStatusTone {
+  return value.trim().toLowerCase() === "closed" ? "closed" : "active";
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const normalized = normalizeStatus(status);
+  const label = status.trim() || "—";
+  const tone = statusTone(label);
   return (
     <span
       className={cn(
         "crm-status-badge",
-        normalized === "Active" ? "crm-status-active" : "crm-status-closed",
+        tone === "active" ? "crm-status-active" : "crm-status-closed",
       )}
+      title={label}
     >
-      {normalized}
+      {label}
     </span>
   );
 }

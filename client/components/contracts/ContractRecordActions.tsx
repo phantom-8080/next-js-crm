@@ -30,6 +30,10 @@ import {
   CREATE_SERVICE_COMPLETION_BUTTON_LABEL,
   CREATE_SERVICE_COMPLETION_PAGE_PATH,
 } from "@/widgets/create-service-completion";
+import {
+  CLIENT_SENDING_RFP_BUTTON_LABEL,
+  ClientSendingRfpWidget,
+} from "@/widgets/client-sending-rfp";
 
 /** Record-view custom buttons (Zoho-style labels). */
 export const CONTRACT_RECORD_BUTTONS = [
@@ -40,7 +44,7 @@ export const CONTRACT_RECORD_BUTTONS = [
   "Sync With Books",
   "Renew Contract",
   "Status Pending Sales Review",
-  "Status Client Sending RFP",
+  CLIENT_SENDING_RFP_BUTTON_LABEL,
   "Status Sourcing Vendor",
   COMPLIANCE_FIELDS_BUTTON_LABEL,
   PO_ADDENDUM_BUTTON_LABEL,
@@ -61,6 +65,7 @@ const CONFIGURED_RECORD_BUTTONS = new Set<string>([
   PO_ADDENDUM_BUTTON_LABEL,
   CLONE_CONTRACT_BUTTON_LABEL,
   RENEW_CONTRACT_BUTTON_LABEL,
+  CLIENT_SENDING_RFP_BUTTON_LABEL,
 ]);
 
 type ContractRecordActionsProps = {
@@ -82,9 +87,11 @@ export function ContractRecordActions({
   const [poAddendumOpen, setPoAddendumOpen] = useState(false);
   const [cloneContractOpen, setCloneContractOpen] = useState(false);
   const [renewContractOpen, setRenewContractOpen] = useState(false);
+  const [clientSendingRfpOpen, setClientSendingRfpOpen] = useState(false);
   const [inProgressMessage, setInProgressMessage] = useState<string | null>(
     null,
   );
+
   const [actionToast, setActionToast] = useState<{
     tone: "info" | "success" | "error";
     message: string;
@@ -216,6 +223,12 @@ export function ContractRecordActions({
       return;
     }
 
+    if (action === CLIENT_SENDING_RFP_BUTTON_LABEL) {
+      setClientSendingRfpOpen(true);
+      onAction?.(action, recordId);
+      return;
+    }
+
     if (!CONFIGURED_RECORD_BUTTONS.has(action)) {
       showInProgress(action);
     }
@@ -338,6 +351,13 @@ export function ContractRecordActions({
       <MassRenewalContractsWidget
         open={renewContractOpen}
         onClose={() => setRenewContractOpen(false)}
+        selectedRecordIds={[recordId]}
+        module="Contracts"
+      />
+
+      <ClientSendingRfpWidget
+        open={clientSendingRfpOpen}
+        onClose={() => setClientSendingRfpOpen(false)}
         selectedRecordIds={[recordId]}
         module="Contracts"
       />

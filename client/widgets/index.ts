@@ -11,6 +11,7 @@ import { PO_ADDENDUM_WIDGET } from "@/widgets/po-addendum";
 import { SEND_MESSAGE_WIDGET } from "@/widgets/send-message";
 import { CLONE_CONTRACT_WIDGET } from "@/widgets/clone-contract";
 import { CREATE_SERVICE_COMPLETION_WIDGET } from "@/widgets/create-service-completion";
+import { CLIENT_SENDING_RFP_WIDGET } from "@/widgets/client-sending-rfp";
 
 /**
  * Registry of list-action widgets.
@@ -29,6 +30,7 @@ export const CRM_WIDGETS = [
   PO_ADDENDUM_WIDGET,
   CLONE_CONTRACT_WIDGET,
   CREATE_SERVICE_COMPLETION_WIDGET,
+  CLIENT_SENDING_RFP_WIDGET,
 ] as const satisfies readonly CrmWidgetDefinition[];
 
 export type CrmWidgetId = (typeof CRM_WIDGETS)[number]["id"];
@@ -93,3 +95,8 @@ export {
   CREATE_SERVICE_COMPLETION_BUTTON_LABEL,
   createServiceCompletionFromContract,
 } from "@/widgets/create-service-completion";
+export {
+  CLIENT_SENDING_RFP_WIDGET,
+  CLIENT_SENDING_RFP_BUTTON_LABEL,
+  ClientSendingRfpWidget,
+} from "@/widgets/client-sending-rfp";
