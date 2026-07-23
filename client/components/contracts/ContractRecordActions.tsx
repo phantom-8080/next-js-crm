@@ -34,6 +34,10 @@ import {
   CLIENT_SENDING_RFP_BUTTON_LABEL,
   ClientSendingRfpWidget,
 } from "@/widgets/client-sending-rfp";
+import {
+  STATUS_VENDOR_COMPLIANCE_BUTTON_LABEL,
+  StatusVendorComplianceWidget,
+} from "@/widgets/status-vendor-compliance";
 
 /** Record-view custom buttons (Zoho-style labels). */
 export const CONTRACT_RECORD_BUTTONS = [
@@ -49,7 +53,7 @@ export const CONTRACT_RECORD_BUTTONS = [
   COMPLIANCE_FIELDS_BUTTON_LABEL,
   PO_ADDENDUM_BUTTON_LABEL,
   "Status Client Negotiations",
-  "Status Vendor Compliance",
+  STATUS_VENDOR_COMPLIANCE_BUTTON_LABEL,
   CLONE_CONTRACT_BUTTON_LABEL,
 ] as const;
 
@@ -66,6 +70,7 @@ const CONFIGURED_RECORD_BUTTONS = new Set<string>([
   CLONE_CONTRACT_BUTTON_LABEL,
   RENEW_CONTRACT_BUTTON_LABEL,
   CLIENT_SENDING_RFP_BUTTON_LABEL,
+  STATUS_VENDOR_COMPLIANCE_BUTTON_LABEL,
 ]);
 
 type ContractRecordActionsProps = {
@@ -88,6 +93,8 @@ export function ContractRecordActions({
   const [cloneContractOpen, setCloneContractOpen] = useState(false);
   const [renewContractOpen, setRenewContractOpen] = useState(false);
   const [clientSendingRfpOpen, setClientSendingRfpOpen] = useState(false);
+  const [statusVendorComplianceOpen, setStatusVendorComplianceOpen] =
+    useState(false);
   const [inProgressMessage, setInProgressMessage] = useState<string | null>(
     null,
   );
@@ -229,6 +236,12 @@ export function ContractRecordActions({
       return;
     }
 
+    if (action === STATUS_VENDOR_COMPLIANCE_BUTTON_LABEL) {
+      setStatusVendorComplianceOpen(true);
+      onAction?.(action, recordId);
+      return;
+    }
+
     if (!CONFIGURED_RECORD_BUTTONS.has(action)) {
       showInProgress(action);
     }
@@ -358,6 +371,13 @@ export function ContractRecordActions({
       <ClientSendingRfpWidget
         open={clientSendingRfpOpen}
         onClose={() => setClientSendingRfpOpen(false)}
+        selectedRecordIds={[recordId]}
+        module="Contracts"
+      />
+
+      <StatusVendorComplianceWidget
+        open={statusVendorComplianceOpen}
+        onClose={() => setStatusVendorComplianceOpen(false)}
         selectedRecordIds={[recordId]}
         module="Contracts"
       />
