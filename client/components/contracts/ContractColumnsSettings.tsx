@@ -44,7 +44,7 @@ function ColumnDropPlaceholder({
     <li
       aria-hidden
       className={cn(
-        "min-h-[3.25rem] list-none rounded-lg border-2 border-dashed border-blue-500 bg-blue-500/[0.04]",
+        "min-h-12 list-none rounded-lg border-2 border-dashed border-blue-500 bg-blue-500/[0.04]",
         className,
       )}
       style={style}
@@ -363,16 +363,16 @@ export function ContractColumnsSettings({
         aria-labelledby="column-settings-title"
         className="relative flex max-h-[min(90dvh,640px)] w-full max-w-lg flex-col overflow-hidden rounded-t-xl border border-crm-border bg-crm-panel-muted shadow-2xl sm:rounded-xl"
       >
-        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-crm-border px-4 py-4 sm:px-5">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="rounded-lg bg-blue-500/15 p-2">
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-crm-border px-5 py-5 sm:px-6">
+          <div className="flex min-w-0 items-center gap-3.5">
+            <div className="rounded-lg bg-blue-500/15 p-2.5">
               <Settings2 className="h-5 w-5 text-blue-400" />
             </div>
-            <div className="min-w-0">
-              <h2 id="column-settings-title" className="section-heading text-lg">
+            <div className="min-w-0 space-y-1">
+              <h2 id="column-settings-title" className="section-heading text-lg leading-tight">
                 Manage columns
               </h2>
-              <div className="text-xs text-crm-text-muted">
+              <div className="text-xs leading-relaxed text-crm-text-muted">
                 {loading ?
                   <ShimmerBar className="mt-0.5 h-3 w-52" />
                 : source === "zoho" ?
@@ -386,38 +386,38 @@ export function ContractColumnsSettings({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg p-2 text-crm-text-muted transition hover:bg-zinc-100 hover:text-crm-text dark:hover:bg-zinc-800"
+            className="rounded-lg p-2.5 text-crm-text-muted transition hover:bg-zinc-100 hover:text-crm-text dark:hover:bg-zinc-800"
             aria-label="Close"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        <div className="shrink-0 border-b border-crm-border p-3 sm:px-5">
+        <div className="shrink-0 border-b border-crm-border px-5 py-4 sm:px-6">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-crm-text-muted" />
+            <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-crm-text-muted" />
             <input
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               disabled={loading}
-              placeholder="Search by label or API name…"
-              className="h-10 w-full rounded-xl border border-crm-border bg-crm-panel pl-10 pr-3 text-sm text-crm-text outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+              placeholder="Search by label…"
+              className="h-11 w-full rounded-xl border border-crm-border bg-crm-panel pl-11 pr-4 text-sm text-crm-text outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
             />
           </div>
           {warning ?
-            <p className="mt-2 text-xs text-amber-400/90">{warning}</p>
+            <p className="mt-3 text-xs leading-relaxed text-amber-400/90">{warning}</p>
           : null}
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-2 sm:px-3">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 sm:px-4 sm:py-4">
           {loading ?
             <ColumnSettingsFieldsSkeleton />
           : orderedForPicker.length === 0 ?
-            <p className="px-3 py-8 text-center text-sm text-crm-text-muted">
+            <p className="px-4 py-10 text-center text-sm text-crm-text-muted">
               {catalog.length === 0 ? "No fields available." : "No fields match your search."}
             </p>
-          : <ul className="space-y-0.5">
+          : <ul className="space-y-1.5">
               {orderedForPicker.map((field, index) => {
                 const checked = isFieldChecked(field.apiName);
                 const canonical = normalizeContractFieldApiName(field.apiName);
@@ -432,7 +432,7 @@ export function ContractColumnsSettings({
                   <Fragment key={field.apiName}>
                     {showDropSlot ?
                       <ColumnDropPlaceholder
-                        className="mb-0.5"
+                        className="mb-1.5"
                         style={dragState ? { minHeight: dragState.height } : undefined}
                       />
                     : null}
@@ -440,7 +440,7 @@ export function ContractColumnsSettings({
                       <li
                         aria-hidden
                         role="separator"
-                        className="my-2 border-t border-crm-border"
+                        className="my-3 border-t border-crm-border"
                       />
                     : null}
                     <li
@@ -462,7 +462,7 @@ export function ContractColumnsSettings({
                     >
                       <label
                         className={cn(
-                          "flex items-start gap-3 rounded-lg px-3 py-2.5 transition hover:bg-zinc-100 dark:hover:bg-zinc-800/70",
+                          "flex min-h-12 items-center gap-3.5 rounded-lg px-4 py-3 transition hover:bg-zinc-100 dark:hover:bg-zinc-800/70",
                           checked && "bg-zinc-100 dark:bg-zinc-800/40",
                           canReorder ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
                         )}
@@ -471,18 +471,10 @@ export function ContractColumnsSettings({
                           type="checkbox"
                           checked={checked}
                           onChange={() => toggle(field.apiName)}
-                          className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer rounded border-crm-border bg-crm-panel accent-blue-500"
+                          className="h-4 w-4 shrink-0 cursor-pointer rounded border-crm-border bg-crm-panel accent-blue-500"
                         />
-                        <span className="min-w-0 flex-1">
-                          <span className="block text-sm font-medium text-crm-text">
-                            {field.label}
-                          </span>
-                          <span className="mt-0.5 block font-mono text-xs text-crm-text-muted">
-                            {field.apiName}
-                          </span>
-                          <span className="mt-0.5 block text-[10px] uppercase tracking-wide text-crm-text-muted">
-                            {field.dataType}
-                          </span>
+                        <span className="min-w-0 flex-1 truncate text-sm font-medium leading-snug text-crm-text">
+                          {field.label}
                         </span>
                       </label>
                     </li>
@@ -491,7 +483,7 @@ export function ContractColumnsSettings({
               })}
               {draggingKey && dropBeforeKey === null ?
                 <ColumnDropPlaceholder
-                  className="mt-0.5"
+                  className="mt-1.5"
                   style={dragState ? { minHeight: dragState.height } : undefined}
                 />
               : null}
@@ -501,7 +493,7 @@ export function ContractColumnsSettings({
 
         {dragState && draggingField ?
           <div
-            className="pointer-events-none fixed z-[200] flex items-start gap-3 rounded-lg border border-crm-border bg-crm-panel px-3 py-2.5 shadow-lg ring-1 ring-black/5 dark:ring-white/10"
+            className="pointer-events-none fixed z-[200] flex min-h-12 items-center gap-3.5 rounded-lg border border-crm-border bg-crm-panel px-4 py-3 shadow-lg ring-1 ring-black/5 dark:ring-white/10"
             style={{
               left: dragState.x - dragState.offsetX,
               top: dragState.y - dragState.offsetY,
@@ -515,39 +507,38 @@ export function ContractColumnsSettings({
               readOnly
               tabIndex={-1}
               aria-hidden
-              className="mt-0.5 h-4 w-4 shrink-0 rounded border-crm-border bg-crm-panel accent-blue-500"
+              className="h-4 w-4 shrink-0 rounded border-crm-border bg-crm-panel accent-blue-500"
             />
-            <span className="min-w-0 flex-1">
-              <span className="block text-sm font-medium text-crm-text">{draggingField.label}</span>
-              <span className="mt-0.5 block font-mono text-xs text-crm-text-muted">
-                {draggingField.apiName}
-              </span>
+            <span className="min-w-0 flex-1 truncate text-sm font-medium leading-snug text-crm-text">
+              {draggingField.label}
             </span>
           </div>
         : null}
 
-        <div className="flex shrink-0 flex-col gap-2 border-t border-crm-border p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:flex-row sm:justify-end sm:px-5">
-          <p className="text-xs text-crm-text-muted sm:mr-auto sm:self-center">
+        <div className="flex shrink-0 flex-col gap-3 border-t border-crm-border px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:flex-row sm:items-center sm:justify-end sm:gap-3 sm:px-6">
+          <p className="text-xs text-crm-text-muted sm:mr-auto">
             {draft.length} column{draft.length === 1 ? "" : "s"} selected
           </p>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="cursor-pointer border-crm-border bg-crm-panel text-crm-text hover:bg-crm-panel-muted"
-            onClick={onClose}
-          >
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            className="cursor-pointer bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50"
-            disabled={draft.length === 0}
-            onClick={handleApply}
-          >
-            Apply columns
-          </Button>
+          <div className="flex gap-2.5">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="cursor-pointer border-crm-border bg-crm-panel px-4 text-crm-text hover:bg-crm-panel-muted"
+              onClick={onClose}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              className="cursor-pointer bg-blue-600 px-4 text-white hover:bg-blue-500 disabled:opacity-50"
+              disabled={draft.length === 0}
+              onClick={handleApply}
+            >
+              Apply columns
+            </Button>
+          </div>
         </div>
       </div>
     </div>
