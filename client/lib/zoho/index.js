@@ -756,7 +756,7 @@ export async function deleteZohoCustomView(customViewId, module = "Contracts") {
   return { id, raw: body };
 }
 
-/* ─── Contracts field catalog ─── */
+/* ─── Module field catalogs ─── */
 
 export const HIDDEN_API_NAMES = new Set([
   "$approval_state",
@@ -786,16 +786,27 @@ function mapZohoField(field) {
 }
 
 const CATALOG_CACHE_TTL_MS = 5 * 60 * 1000;
-/** @type {{ fields: import("@/lib/contracts/columns").CrmFieldMeta[], source: "zoho" | "fallback", cachedAt: number } | null} */
-let catalogCache = null;
+/** @type {Map<string, { fields: import("@/lib/contracts/columns").CrmFieldMeta[], source: "zoho" | "fallback", cachedAt: number }>} */
+const catalogCacheByModule = new Map();
 
-/** @returns {Promise<{ fields: import("@/lib/contracts/columns").CrmFieldMeta[], source: "zoho" | "fallback" }>} */
-export async function loadContractsFieldCatalog() {
-  if (catalogCache && Date.now() - catalogCache.cachedAt < CATALOG_CACHE_TTL_MS) {
-    return { fields: catalogCache.fields, source: catalogCache.source };
+/**
+ * @param {string} module Zoho CRM module API name
+ * @param {{
+ *   excludeField?: (field: import("@/lib/contracts/columns").CrmFieldMeta) => boolean;
+ *   fallbackFields?: import("@/lib/contracts/columns").CrmFieldMeta[];
+ * }} [options]
+ * @returns {Promise<{ fields: import("@/lib/contracts/columns").CrmFieldMeta[], source: "zoho" | "fallback" }>}
+ */
+export async function loadModuleFieldCatalog(module, options = {}) {
+  const moduleName = String(module || "").trim() || "Contracts";
+  const cached = catalogCacheByModule.get(moduleName);
+  if (cached && Date.now() - cached.cachedAt < CATALOG_CACHE_TTL_MS) {
+    return { fields: cached.fields, source: cached.source };
   }
 
-  const zohoUrl = getZohoModuleFieldsUrl("Contracts");
+  const excludeField = options.excludeField;
+  const fallbackFields = options.fallbackFields ?? FALLBACK_FIELD_CATALOG;
+  const zohoUrl = getZohoModuleFieldsUrl(moduleName);
 
   try {
     const { res, body } = await fetchZohoJson(zohoUrl);
@@ -805,21 +816,39 @@ export async function loadContractsFieldCatalog() {
         .filter((f) => f.api_name && !HIDDEN_API_NAMES.has(f.api_name))
         .filter((f) => f.api_name !== "id")
         .map(mapZohoField)
-        .filter((f) => !isExcludedContractCatalogField(f))
+        .filter((f) => (excludeField ? !excludeField(f) : true))
         .sort((a, b) => a.label.localeCompare(b.label));
 
       const result = { fields, source: /** @type {const} */ ("zoho") };
-      catalogCache = { ...result, cachedAt: Date.now() };
+      catalogCacheByModule.set(moduleName, { ...result, cachedAt: Date.now() });
       return result;
     }
   } catch (err) {
-    console.error("Zoho fields request failed:", err);
+    console.error(`Zoho fields request failed (${moduleName}):`, err);
   }
 
   const fallback = {
-    fields: FALLBACK_FIELD_CATALOG.map((f) => ({ ...f })),
+    fields: fallbackFields.map((f) => ({ ...f })),
     source: /** @type {const} */ ("fallback"),
   };
-  catalogCache = { ...fallback, cachedAt: Date.now() };
+  catalogCacheByModule.set(moduleName, { ...fallback, cachedAt: Date.now() });
   return fallback;
+}
+
+/** @returns {Promise<{ fields: import("@/lib/contracts/columns").CrmFieldMeta[], source: "zoho" | "fallback" }>} */
+export async function loadContractsFieldCatalog() {
+  return loadModuleFieldCatalog("Contracts", {
+    excludeField: isExcludedContractCatalogField,
+    fallbackFields: FALLBACK_FIELD_CATALOG,
+  });
+}
+
+/** @returns {Promise<{ fields: import("@/lib/contracts/columns").CrmFieldMeta[], source: "zoho" | "fallback" }>} */
+export async function loadVendorsFieldCatalog() {
+  return loadModuleFieldCatalog("Vendors", {
+    excludeField: isExcludedContractCatalogField,
+    fallbackFields: FALLBACK_FIELD_CATALOG.filter((f) =>
+      ["Name", "Email", "Phone", "Owner", "Created_Time", "Modified_Time"].includes(f.apiName),
+    ),
+  });
 }

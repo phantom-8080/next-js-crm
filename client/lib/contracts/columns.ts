@@ -49,6 +49,8 @@ const EXCLUDED_CONTRACT_FIELD_API_NAMES = new Set([
   "Sales_Order_Books_ID",
   "Sales_Order_Books_Id",
   "Number_of_Locations_Open_For_Bid_Olio",
+  "Record_Status",
+  "Record_Status__s",
 ]);
 
 const EXCLUDED_CONTRACT_FIELD_LABELS = new Set([
@@ -65,6 +67,7 @@ const EXCLUDED_CONTRACT_FIELD_LABELS = new Set([
   "sales orders books id",
   "sales order books id",
   "number of locations open for bid (olio)",
+  "record status",
 ]);
 
 export function isExcludedContractFieldApiName(
@@ -323,7 +326,7 @@ export function formatCellForDisplay(value: unknown, dataType?: string): string 
 }
 
 export function isStatusField(apiName: string) {
-  return apiName === "Contract_Status" || apiName === "Record_Status";
+  return apiName === "Contract_Status";
 }
 
 /** Zoho / UI boolean values (record detail, filters). */

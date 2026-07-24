@@ -10,17 +10,49 @@ import {
 import { cn } from "@/lib/utils";
 import {
   formatCellForDisplay,
-  isDateLikeField,
+  getContractFieldDisplayValue,
+  isStatusField,
   isUrlLikeField,
   looksLikeHttpUrl,
+  type CrmFieldMeta,
+  FALLBACK_FIELD_CATALOG,
 } from "@/lib/contracts/columns";
-import type { CrmRecordSection, RecordFieldRow } from "@/lib/contracts/recordLayout";
+import {
+  buildFallbackRecordSections,
+  mergeSectionsWithCatalog,
+  type CrmRecordSection,
+} from "@/lib/contracts/recordLayout";
 import { VENDOR_DETAIL_SECTIONS, labelForVendorField } from "@/lib/vendor";
 
 type VendorRecord = {
   id: string;
   fields: Record<string, string>;
+  lookups?: Record<string, string>;
 };
+
+function vendorFallbackCatalog(): CrmFieldMeta[] {
+  const names = new Set<string>();
+  for (const section of VENDOR_DETAIL_SECTIONS) {
+    for (const f of section.fields) names.add(f);
+  }
+  return [...names].map((apiName) => ({
+    apiName,
+    label: labelForVendorField(apiName),
+    dataType:
+      apiName === "Created_Time" || apiName === "Modified_Time" ? "datetime"
+      : apiName === "Website" ? "url"
+      : "text",
+  }));
+}
+
+function vendorFallbackSections(): CrmRecordSection[] {
+  return VENDOR_DETAIL_SECTIONS.map((section) => ({
+    id: section.title.replace(/\s+/g, "-").toLowerCase(),
+    title: section.title,
+    fieldApiNames: [...section.fields],
+    kind: "fields" as const,
+  }));
+}
 
 function StatusPill({ status }: { status: string }) {
   const value = status.trim() || "—";
@@ -43,7 +75,9 @@ function FieldValue({
   value: string;
   dataType: string;
 }) {
-  if (apiName === "Vendor_Status") return <StatusPill status={value} />;
+  if (apiName === "Vendor_Status" || apiName === "Status" || isStatusField(apiName)) {
+    return <StatusPill status={value} />;
+  }
   const display = formatCellForDisplay(value, dataType);
   if (!display) return <span className="text-crm-text-muted">—</span>;
 
@@ -73,16 +107,43 @@ type VendorRecordViewProps = {
 export default function VendorRecordView({ id }: VendorRecordViewProps) {
   const [record, setRecord] = useState<VendorRecord | null>(null);
   const [layoutLabel, setLayoutLabel] = useState("");
-  const [zohoRecordId, setZohoRecordId] = useState("");
+  const [fieldCatalog, setFieldCatalog] = useState<CrmFieldMeta[]>(() => vendorFallbackCatalog());
+  const [recordSections, setRecordSections] = useState<CrmRecordSection[]>(() =>
+    vendorFallbackSections(),
+  );
+  const [layoutDroppedFieldApiNames, setLayoutDroppedFieldApiNames] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
-    async function load() {
+    async function loadFieldsThenRecord() {
       setLoading(true);
       setError(null);
+
+      try {
+        const fieldsRes = await fetch("/api/vendors/fields", { cache: "no-store" });
+        const fieldsData = (await fieldsRes.json()) as {
+          fields?: CrmFieldMeta[];
+          sections?: CrmRecordSection[] | null;
+          droppedSectionFieldApiNames?: string[];
+        };
+        if (!cancelled && fieldsRes.ok && fieldsData.fields?.length) {
+          setFieldCatalog(fieldsData.fields);
+          setLayoutDroppedFieldApiNames(fieldsData.droppedSectionFieldApiNames ?? []);
+          if (fieldsData.sections?.length) {
+            setRecordSections(fieldsData.sections);
+          } else {
+            setRecordSections(buildFallbackRecordSections(fieldsData.fields));
+          }
+        }
+      } catch {
+        /* keep fallback catalog / sections */
+      }
+
+      if (cancelled) return;
+
       try {
         const res = await fetch(`/api/vendors/${encodeURIComponent(id)}`, { cache: "no-store" });
         const data = (await res.json()) as {
@@ -95,7 +156,6 @@ export default function VendorRecordView({ id }: VendorRecordViewProps) {
         if (!cancelled) {
           setRecord(data.record ?? null);
           setLayoutLabel(data.layoutLabel ?? "");
-          setZohoRecordId(data.zohoRecordId ?? "");
         }
       } catch (err) {
         if (!cancelled) {
@@ -107,7 +167,7 @@ export default function VendorRecordView({ id }: VendorRecordViewProps) {
       }
     }
 
-    void load();
+    void loadFieldsThenRecord();
     return () => {
       cancelled = true;
     };
@@ -115,35 +175,28 @@ export default function VendorRecordView({ id }: VendorRecordViewProps) {
 
   const title = useMemo(() => {
     if (!record) return "Vendor";
-    return record.fields.Name?.trim() || `Vendor ${record.id}`;
+    return (
+      record.fields.Vendor_Name?.trim() ||
+      record.fields.Name?.trim() ||
+      "Vendor"
+    );
   }, [record]);
 
-  const statusValue = record?.fields.Vendor_Status ?? "";
+  const statusValue =
+    record?.fields.Vendor_Status?.trim() ||
+    record?.fields.Status?.trim() ||
+    "";
 
   const sectionGroups = useMemo(() => {
     if (!record) return [];
-    return VENDOR_DETAIL_SECTIONS.map((section) => {
-      const crmSection: CrmRecordSection = {
-        id: section.title.replace(/\s+/g, "-").toLowerCase(),
-        title: section.title,
-        fieldApiNames: [...section.fields],
-        kind: "fields",
-      };
-      const rows: RecordFieldRow[] = section.fields.map((apiName) => ({
-        apiName,
-        label: labelForVendorField(apiName),
-        value: record.fields[apiName] ?? "",
-        dataType:
-          isDateLikeField(apiName) ? "date"
-          : apiName === "Created_Time" || apiName === "Modified_Time" ? "datetime"
-          : apiName === "Website" ? "url"
-          : "text",
-      }));
-      return { section: crmSection, rows };
-    });
-  }, [record]);
-
-  const displayRecordId = zohoRecordId || record?.id || "";
+    const catalog = fieldCatalog.length > 0 ? fieldCatalog : FALLBACK_FIELD_CATALOG;
+    return mergeSectionsWithCatalog(
+      recordSections,
+      catalog,
+      (apiName) => getContractFieldDisplayValue(record.fields, apiName),
+      { droppedSectionFieldApiNames: layoutDroppedFieldApiNames },
+    );
+  }, [record, fieldCatalog, layoutDroppedFieldApiNames, recordSections]);
 
   return (
     <div className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden rounded-md border border-crm-border bg-crm-panel">
@@ -157,12 +210,9 @@ export default function VendorRecordView({ id }: VendorRecordViewProps) {
               {loading ?
                 <ContractRecordHeaderSkeleton />
               : <>
-                  <h1 className="page-heading truncate text-base sm:text-lg">{title}</h1>
-                  {displayRecordId ?
-                    <p className="mt-0.5 font-mono text-xs text-crm-text-muted">
-                      ID {displayRecordId}
-                    </p>
-                  : null}
+                  <h1 className="page-heading truncate text-base sm:text-lg" title={title}>
+                    {title}
+                  </h1>
                   {layoutLabel ?
                     <p className="mt-1 text-xs text-crm-text-muted">{layoutLabel}</p>
                   : null}
@@ -186,7 +236,7 @@ export default function VendorRecordView({ id }: VendorRecordViewProps) {
 
       <div
         className={cn(
-          "min-h-0 flex-1 px-3 py-4 sm:px-6 sm:py-6",
+          "min-h-0 flex-1 bg-crm-canvas px-3 py-4 sm:px-6 sm:py-6",
           loading ? "flex flex-col overflow-hidden" : "overflow-auto overscroll-contain",
         )}
       >

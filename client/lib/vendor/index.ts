@@ -5,13 +5,13 @@ export const ZOHO_VENDORS_MODULE = "Vendors";
 
 export const VENDOR_FIELD_LABELS: Record<string, string> = {
   Name: "Vendor name",
+  Vendor_Name: "Vendor name",
   Vendor_Status: "Status",
   Email: "Email",
   Phone: "Phone",
   City: "City",
   State: "State",
   Owner: "Owner",
-  Record_Status__s: "Record status",
   Website: "Website",
   Street: "Street",
   Zip_Code: "Zip code",
@@ -32,9 +32,9 @@ export const VENDOR_DETAIL_SECTIONS = [
     defaultOpen: true,
     fields: [
       "Name",
+      "Vendor_Name",
       "Vendor_Status",
       "Vendor_Type",
-      "Record_Status__s",
       "Description",
       "Created_Time",
       "Modified_Time",
@@ -92,7 +92,6 @@ export const VENDOR_STATIC_RECORDS: StaticVendorRecord[] = [
       City: "Minneapolis",
       State: "MN",
       Owner: "Gabriel Brent",
-      Record_Status__s: "Available",
     },
   },
   {
@@ -105,7 +104,6 @@ export const VENDOR_STATIC_RECORDS: StaticVendorRecord[] = [
       City: "Arlington",
       State: "VA",
       Owner: "Olio Group",
-      Record_Status__s: "Available",
     },
   },
   {
@@ -118,7 +116,6 @@ export const VENDOR_STATIC_RECORDS: StaticVendorRecord[] = [
       City: "Tempe",
       State: "AZ",
       Owner: "Jake Bednar",
-      Record_Status__s: "Available",
     },
   },
   {
@@ -131,7 +128,6 @@ export const VENDOR_STATIC_RECORDS: StaticVendorRecord[] = [
       City: "Scranton",
       State: "PA",
       Owner: "Jim Bjorgaard",
-      Record_Status__s: "Available",
     },
   },
 ];
@@ -143,7 +139,6 @@ const STATIC_VENDOR_1001_RAW: Record<string, unknown> = {
   Name: "Ghazanfar Ali Dev Test",
   Vendor_Status: "Active",
   Vendor_Type: "Service provider",
-  Record_Status__s: "Available",
   Description: "Dev/test vendor used for SOW, bids, and vendor invoice demos.",
   Email: "ghazanfar.dev@example.com",
   Phone: "(612) 555-0142",

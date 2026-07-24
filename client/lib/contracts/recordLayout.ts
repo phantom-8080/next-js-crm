@@ -281,7 +281,7 @@ const FALLBACK_SECTION_ORDER: { id: string; title: string; test: (apiName: strin
       id: "system",
       title: "System",
       test: (api) =>
-        /^(Created|Modified)_(By|Time)|RecordID|Record_Status|Tag|Last_Activity/i.test(api) ||
+        /^(Created|Modified)_(By|Time)|RecordID|Tag|Last_Activity/i.test(api) ||
         api === "Owner",
     },
   ];
@@ -552,7 +552,7 @@ export function collectRecordDetailApiNames(
     ),
   );
 
-  const names = new Set<string>(["Name", "Contract_Status", "Record_Status"]);
+  const names = new Set<string>(["Name", "Contract_Status"]);
 
   const addField = (apiName: string) => {
     const canonical = normalizeContractFieldApiName(apiName);
@@ -599,6 +599,114 @@ export function collectSubformFieldApiNames(
 }
 
 /* ─── Load layout from Zoho ─── */
+
+/** Parse Zoho layout for a module (Vendors, etc.) without contract-only section rules. */
+export function parseZohoModuleLayout(layoutBody: unknown): ParsedZohoContractLayout | null {
+  if (!layoutBody || typeof layoutBody !== "object") return null;
+  const layouts = (layoutBody as { layouts?: unknown[] }).layouts;
+  if (!Array.isArray(layouts) || layouts.length === 0) return null;
+
+  const layout =
+    layouts.find(
+      (l) =>
+        l &&
+        typeof l === "object" &&
+        ((l as { generated_type?: string }).generated_type === "system" ||
+          (l as { status?: string }).status === "active"),
+    ) ?? layouts[0];
+
+  if (!layout || typeof layout !== "object") return null;
+  const rawSections = (layout as { sections?: unknown[] }).sections;
+  if (!Array.isArray(rawSections)) return null;
+
+  const sections: CrmRecordSection[] = [];
+  const droppedSectionFieldApiNames: string[] = [];
+  const droppedSeen = new Set<string>();
+
+  const sortedRaw = [...rawSections].sort(
+    (a, b) =>
+      Number((a as { sequence_number?: number }).sequence_number ?? 0) -
+      Number((b as { sequence_number?: number }).sequence_number ?? 0),
+  );
+
+  for (const [index, raw] of sortedRaw.entries()) {
+    if (!raw || typeof raw !== "object") continue;
+    const section = raw as {
+      display_label?: string;
+      name?: string;
+      api_name?: string;
+      type?: string;
+      fields?: { api_name?: string }[];
+    };
+
+    const title =
+      section.display_label?.trim() ||
+      section.name?.trim() ||
+      section.api_name?.trim() ||
+      "Section";
+
+    const fieldApiNames = collectSectionFieldApiNames(section);
+
+    if (isDeletedFieldsLayoutSection(title)) {
+      for (const api of fieldApiNames) {
+        if (!droppedSeen.has(api)) {
+          droppedSeen.add(api);
+          droppedSectionFieldApiNames.push(api);
+        }
+      }
+      continue;
+    }
+
+    const isSubform =
+      section.type === "subform" ||
+      (fieldApiNames.length === 1 &&
+        /subform|line_items/i.test(fieldApiNames[0] ?? ""));
+
+    sections.push({
+      id: slugSectionId(title, index),
+      title,
+      fieldApiNames,
+      kind: isSubform ? "subform" : "fields",
+    });
+  }
+
+  if (sections.length === 0 && droppedSectionFieldApiNames.length === 0) return null;
+
+  return { sections, droppedSectionFieldApiNames };
+}
+
+export async function loadModuleRecordSections(
+  module: string,
+  catalog: CrmFieldMeta[],
+): Promise<{
+  sections: CrmRecordSection[];
+  droppedSectionFieldApiNames: string[];
+  source: "zoho" | "fallback";
+}> {
+  const url = getZohoModuleLayoutsUrl(module);
+
+  try {
+    const { res, body } = await fetchZohoJson(url);
+    if (res.ok) {
+      const parsed = parseZohoModuleLayout(body);
+      if (parsed && (parsed.sections.length > 0 || parsed.droppedSectionFieldApiNames.length > 0)) {
+        return {
+          sections: parsed.sections,
+          droppedSectionFieldApiNames: parsed.droppedSectionFieldApiNames,
+          source: "zoho",
+        };
+      }
+    }
+  } catch (err) {
+    console.error(`Zoho layouts request failed (${module}):`, err);
+  }
+
+  return {
+    sections: buildFallbackRecordSections(catalog),
+    droppedSectionFieldApiNames: [],
+    source: "fallback",
+  };
+}
 
 export async function loadContractsRecordSections(
   catalog: CrmFieldMeta[],

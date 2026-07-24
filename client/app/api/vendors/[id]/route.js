@@ -4,7 +4,15 @@ import {
   isStaticVendorId,
   ZOHO_VENDORS_MODULE,
 } from "@/lib/vendor";
-import { fetchZohoRecordById, mapZohoRecord } from "@/lib/zoho";
+import {
+  collectRecordDetailApiNames,
+  loadModuleRecordSections,
+} from "@/lib/contracts/recordLayout";
+import {
+  fetchZohoRecordById,
+  loadVendorsFieldCatalog,
+  mapZohoRecord,
+} from "@/lib/zoho";
 
 function layoutLabelFromRow(row) {
   const layout = row?.$layout_id ?? row?.Layout;
@@ -31,7 +39,27 @@ export async function GET(_request, context) {
     return Response.json(staticDetail);
   }
 
-  const apiNames = allVendorDetailApiNames();
+  let apiNames = allVendorDetailApiNames();
+  let layoutSections = null;
+  let droppedSectionFieldApiNames = [];
+
+  try {
+    const { fields, source } = await loadVendorsFieldCatalog();
+    if (source === "zoho" && fields.length > 0) {
+      const layout = await loadModuleRecordSections(ZOHO_VENDORS_MODULE, fields);
+      layoutSections = layout.sections;
+      droppedSectionFieldApiNames = layout.droppedSectionFieldApiNames ?? [];
+      apiNames = collectRecordDetailApiNames(fields, layoutSections, {
+        droppedSectionFieldApiNames,
+      });
+      // Ensure common vendor title/status keys are always requested.
+      for (const extra of ["Name", "Vendor_Name", "Vendor_Status", "Status"]) {
+        if (!apiNames.includes(extra)) apiNames.push(extra);
+      }
+    }
+  } catch (err) {
+    console.error("Failed to load Vendors field catalog for record:", err);
+  }
 
   let row;
   try {
@@ -55,5 +83,6 @@ export async function GET(_request, context) {
     record: mapped,
     layoutLabel: layoutLabelFromRow(row),
     zohoRecordId: row.id != null ? String(row.id) : "",
+    visibleFields: apiNames,
   });
 }
