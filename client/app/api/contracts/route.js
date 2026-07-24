@@ -28,10 +28,13 @@ function mapListContract(row, visibleApiNames) {
   };
 }
 
+const MAX_PER_PAGE = 200;
+
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const page = Math.max(1, Number.parseInt(searchParams.get("page") ?? "1", 10) || 1);
-  const perPage = 100;
+  const rawPerPage = Number.parseInt(searchParams.get("perPage") ?? "100", 10) || 100;
+  const perPage = Math.min(MAX_PER_PAGE, Math.max(1, rawPerPage));
 
   const visibleApiNames = parseVisibleFields(searchParams);
   const fetchFieldNames = expandApiNamesForZohoFetch(visibleApiNames);

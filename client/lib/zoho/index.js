@@ -156,7 +156,18 @@ export function getZohoModuleLayoutsUrl(module = ZOHO_CRM_MODULE_CONTRACTS) {
   return `${ZOHO_CRM_V8_BASE}/settings/layouts?module=${encodeURIComponent(module)}`;
 }
 
-/** Search records with criteria — CRM v3 (requires ZohoSearch.securesearch.READ) */
+/**
+ * Search records with criteria — CRM v3 (requires ZohoSearch.securesearch.READ)
+ * @param {string} [module]
+ * @param {{
+ *   criteria?: string;
+ *   fields?: string;
+ *   page?: number;
+ *   perPage?: number;
+ *   word?: string;
+ * }} [options]
+ * @returns {string}
+ */
 export function getZohoModuleSearchUrl(
   module = ZOHO_CRM_MODULE_CONTRACTS,
   { criteria, fields, page = 1, perPage = 100, word } = {},

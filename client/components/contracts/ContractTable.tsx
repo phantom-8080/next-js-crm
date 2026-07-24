@@ -15,6 +15,7 @@ import { InlineLoadingShimmer, PaginationLoadingShimmer } from "@/components/sha
 import { ContractColumnsSettings } from "@/components/contracts/ContractColumnsSettings";
 import { ResizableTableHeadCell } from "@/components/shared/ResizableTableHeadCell";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
+import { useTheme, type ThemeMode } from "@/components/layout/ThemeProvider";
 import { Button } from "@/components/ui/button";
 import { useContractVisibleColumns } from "@/hooks/contracts/useContractVisibleColumns";
 import { useResizableColumnWidths } from "@/hooks/table/useResizableColumnWidths";
@@ -54,8 +55,9 @@ import { CustomViewsDropdown } from "@/components/contracts/CustomViewsDropdown"
 const SELECT_COL_WIDTH = 44;
 const SELECT_COL = { apiName: "_select" } as const;
 
-function openContractRecord(recordId: string) {
-  window.open(`/contracts/${recordId}`, "_blank", "noopener,noreferrer");
+function openContractRecord(recordId: string, theme: ThemeMode) {
+  const url = `/contracts/${encodeURIComponent(recordId)}?theme=${theme}`;
+  window.open(url, "_blank", "noopener,noreferrer");
 }
 
 type ContractStatusTone = "active" | "closed";
@@ -236,7 +238,8 @@ function getColumnCellClass(
   return "overflow-hidden px-3 py-4 text-crm-text";
 }
 
-const PAGE_SIZE = 100;
+const PAGE_SIZE_OPTIONS = [10, 30, 50, 100, 200] as const;
+const DEFAULT_PAGE_SIZE = 100;
 
 type ContractsTableProps = {
   filtersOpen?: boolean;
@@ -259,11 +262,13 @@ function ContractCard({
   columns,
   selected,
   onSelectedChange,
+  theme,
 }: {
   row: ContractRecord;
   columns: { apiName: string; label: string; dataType: string }[];
   selected: boolean;
   onSelectedChange: (selected: boolean) => void;
+  theme: ThemeMode;
 }) {
   const title =
     row.fields.Name?.trim() ||
@@ -277,11 +282,11 @@ function ContractCard({
       tabIndex={0}
       title={title}
       data-state={selected ? "selected" : undefined}
-      onClick={() => openContractRecord(row.id)}
+      onClick={() => openContractRecord(row.id, theme)}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          openContractRecord(row.id);
+          openContractRecord(row.id, theme);
         }
       }}
       className={cn(
@@ -339,12 +344,14 @@ export default function ContractsTable({
   onApplyCustomView,
   customViewsRefreshKey = 0,
 }: ContractsTableProps) {
+  const { theme } = useTheme();
   const { visibleApiNames, setVisibleApiNames } = useContractVisibleColumns();
   const [fieldCatalog, setFieldCatalog] = useState<CrmFieldMeta[]>(FALLBACK_FIELD_CATALOG);
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [contracts, setContracts] = useState<ContractRecord[]>([]);
   const [totalCount, setTotalCount] = useState<number | null>(null);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -408,7 +415,7 @@ export default function ContractsTable({
             `&criteria=${encodeURIComponent(searchCriteria)}`
           : "";
         const res = await fetch(
-          `/api/contracts?page=${page}&fields=${fieldsParam}${criteriaPart}${cvidPart}`,
+          `/api/contracts?page=${page}&perPage=${pageSize}&fields=${fieldsParam}${criteriaPart}${cvidPart}`,
         );
         const data = (await res.json()) as {
           contracts?: ContractRecord[];
@@ -443,8 +450,8 @@ export default function ContractsTable({
               ),
               lookups: r.lookups,
             }));
-            const start = (page - 1) * PAGE_SIZE;
-            const slice = rows.slice(start, start + PAGE_SIZE);
+            const start = (page - 1) * pageSize;
+            const slice = rows.slice(start, start + pageSize);
             setContracts(slice);
             const total = rows.length;
             setTotalCount(total);
@@ -456,7 +463,7 @@ export default function ContractsTable({
             } else if (!filteredActive && onFilteredTotalChange) {
               onFilteredTotalChange(null);
             }
-            setHasMore(start + PAGE_SIZE < rows.length);
+            setHasMore(start + pageSize < rows.length);
             if (data.zohoUnreachable && data.error) {
               setError(null);
             }
@@ -497,6 +504,7 @@ export default function ContractsTable({
     };
   }, [
     page,
+    pageSize,
     fieldsParam,
     searchCriteria,
     customViewId,
@@ -515,7 +523,8 @@ export default function ContractsTable({
     [setVisibleApiNames],
   );
 
-  const totalPages = totalCount != null ? Math.max(1, Math.ceil(totalCount / PAGE_SIZE)) : null;
+  const totalPages =
+    totalCount != null ? Math.max(1, Math.ceil(totalCount / pageSize)) : null;
   const totalLabel =
     totalCount != null ? totalCount.toLocaleString("en-US")
     : loading ? "—"
@@ -715,6 +724,25 @@ export default function ContractsTable({
                 }
               </span>
             </div>
+            <label className="flex items-center gap-1.5 text-xs text-crm-text-muted">
+              <span className="hidden sm:inline">Rows</span>
+              <select
+                value={pageSize}
+                disabled={loading}
+                aria-label="Rows per page"
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setPage(1);
+                }}
+                className="crm-toolbar-btn h-10 min-w-[4.5rem] cursor-pointer rounded-md border border-crm-border bg-crm-panel px-2 text-sm text-crm-text outline-none focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {PAGE_SIZE_OPTIONS.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </label>
             <ThemeToggle className="crm-toolbar-btn size-10" />
             <Button
               type="button"
@@ -774,6 +802,7 @@ export default function ContractsTable({
                       columns={columnMeta}
                       selected={selectedIds.has(row.id)}
                       onSelectedChange={(selected) => toggleRowSelected(row.id, selected)}
+                      theme={theme}
                     />
                   ))
                 }
@@ -809,11 +838,11 @@ export default function ContractsTable({
                             tabIndex={0}
                             data-state={isSelected ? "selected" : undefined}
                             className="crm-row-hover border-crm-border text-crm-text"
-                            onClick={() => openContractRecord(row.id)}
+                            onClick={() => openContractRecord(row.id, theme)}
                             onKeyDown={(e) => {
                               if (e.key === "Enter" || e.key === " ") {
                                 e.preventDefault();
-                                openContractRecord(row.id);
+                                openContractRecord(row.id, theme);
                               }
                             }}
                           >
@@ -897,7 +926,7 @@ export default function ContractsTable({
             disabled={loading || !hasMore}
             onClick={() => setPage((p) => p + 1)}
           >
-            Next 100
+            Next
           </Button>
         </div>
       </div>
