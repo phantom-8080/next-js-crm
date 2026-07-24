@@ -59,7 +59,11 @@ export function looksLikeZohoId(value) {
  */
 export function getKnownLookupFieldConfig(apiName) {
   const key = String(apiName ?? "").trim();
-  return KNOWN_LOOKUP_FILTER_FIELDS[key] ?? null;
+  if (!key) return null;
+  if (KNOWN_LOOKUP_FILTER_FIELDS[key]) return KNOWN_LOOKUP_FILTER_FIELDS[key];
+  // Subform fields are stored as `SubformModule.Field` in the filter UI.
+  const leaf = key.includes(".") ? key.slice(key.lastIndexOf(".") + 1) : key;
+  return KNOWN_LOOKUP_FILTER_FIELDS[leaf] ?? null;
 }
 
 /**
@@ -108,6 +112,12 @@ export function criteriaApiNameForFilterField(apiName, dataType = "", module = "
   // Map onto the parent module Layout field (same Vendor / Client-Site ids).
   if (name.endsWith(".Layout") || (type === "layout" && name.includes("."))) {
     return "Layout";
+  }
+
+  // Subform service lookup is exposed in the UI as `Our_Services_SubForm.OurServices`.
+  // Normalize to leaf `OurServices`; Contracts list API resolves it via the subform module.
+  if (name === "OurServices" || name.endsWith(".OurServices")) {
+    return "OurServices";
   }
 
   return name;

@@ -5,6 +5,11 @@ import {
   mergeLegacyFieldValues,
 } from "@/lib/contracts/columns";
 import {
+  fetchContractIdsByOurServices,
+  fetchContractsByIds,
+  splitOurServicesFromFiltersJson,
+} from "@/lib/contracts/ourServicesFilter";
+import {
   buildZohoModuleListUrls,
   fetchZohoJson,
   mapZohoRecord,
@@ -28,6 +33,28 @@ function mapListContract(row, visibleApiNames) {
   };
 }
 
+function emptyListResponse({
+  page,
+  perPage,
+  visibleApiNames,
+  rawCriteria,
+  cvid,
+  filtered,
+}) {
+  return Response.json({
+    contracts: [],
+    totalCount: 0,
+    loadedCount: 0,
+    page,
+    perPage,
+    hasMore: false,
+    visibleFields: visibleApiNames,
+    criteria: rawCriteria,
+    cvid,
+    filtered,
+  });
+}
+
 const MAX_PER_PAGE = 200;
 
 export async function GET(request) {
@@ -43,6 +70,129 @@ export async function GET(request) {
   const { criteria, filters } = parseListSearchParam(rawCriteria);
   const cvid = searchParams.get("cvid")?.trim() || null;
 
+  const { serviceFilter, remainingFiltersJson } = splitOurServicesFromFiltersJson(filters);
+  const effectiveFilters = remainingFiltersJson;
+  const filtered = Boolean(criteria || filters || cvid || serviceFilter);
+
+  // OurServices lives on Our_Services_SubForm — resolve Parent_Id, then load Contracts.
+  if (serviceFilter && !cvid) {
+    try {
+      const allContractIds = await fetchContractIdsByOurServices(serviceFilter);
+      if (allContractIds.length === 0) {
+        return emptyListResponse({
+          page,
+          perPage,
+          visibleApiNames,
+          rawCriteria,
+          cvid,
+          filtered: true,
+        });
+      }
+
+      // Optional extra Contracts filters: load candidates by id, then keep those that
+      // also match remaining filters (applied via a second Zoho list call + intersect).
+      let matchingIds = allContractIds;
+
+      if (effectiveFilters || criteria) {
+        /** @type {Set<string>} */
+        const allowed = new Set();
+        let listPage = 1;
+        let more = true;
+        while (more && listPage <= 10) {
+          const { listUrl } = buildZohoModuleListUrls({
+            module: "Contracts",
+            base: ZOHO_CRM_BASE,
+            fields: "id",
+            page: listPage,
+            perPage: 200,
+            criteria,
+            filters: effectiveFilters,
+            cvid: null,
+          });
+          const { res, body } = await fetchZohoJson(listUrl);
+          if (res.status === 204 || body?.code === "NO_DATA") break;
+          if (!res.ok) {
+            return Response.json(
+              {
+                error: "Zoho CRM error",
+                status: res.status,
+                details: body,
+              },
+              { status: res.status >= 400 && res.status < 600 ? res.status : 502 },
+            );
+          }
+          for (const row of body?.data ?? []) {
+            if (row?.id != null) allowed.add(String(row.id));
+          }
+          more = Boolean(body?.info?.more_records);
+          listPage += 1;
+        }
+
+        matchingIds = allContractIds.filter((id) => allowed.has(id));
+        if (matchingIds.length === 0) {
+          return emptyListResponse({
+            page,
+            perPage,
+            visibleApiNames,
+            rawCriteria,
+            cvid,
+            filtered: true,
+          });
+        }
+      }
+
+      const totalCount = matchingIds.length;
+      const start = (page - 1) * perPage;
+      const pageIds = matchingIds.slice(start, start + perPage);
+      const { res, body, rows } = await fetchContractsByIds(pageIds, zohoFields);
+
+      if (!res.ok && res.status !== 204) {
+        return Response.json(
+          {
+            error: "Zoho CRM error",
+            status: res.status,
+            details: body,
+          },
+          { status: res.status >= 400 && res.status < 600 ? res.status : 502 },
+        );
+      }
+
+      const contracts = rows.map((row) => mapListContract(row, visibleApiNames));
+      return Response.json({
+        contracts,
+        totalCount,
+        loadedCount: contracts.length,
+        page,
+        perPage,
+        hasMore: start + perPage < totalCount,
+        visibleFields: visibleApiNames,
+        criteria: rawCriteria,
+        cvid,
+        filtered: true,
+      });
+    } catch (err) {
+      console.error("OurServices contract filter failed:", err);
+      const status = err.status ?? 502;
+      const message = err instanceof Error ? err.message : "Failed to filter by OurServices";
+      if (status >= 400 && status < 600) {
+        return Response.json(
+          { error: message, status, details: err.details },
+          { status },
+        );
+      }
+      const offline = buildOfflineContractsListResponse({
+        page,
+        perPage,
+        visibleApiNames,
+      });
+      return Response.json({
+        ...offline,
+        error: message,
+        zohoUnreachable: true,
+      });
+    }
+  }
+
   const { listUrl, countUrl } = buildZohoModuleListUrls({
     module: "Contracts",
     base: ZOHO_CRM_BASE,
@@ -50,7 +200,7 @@ export async function GET(request) {
     page,
     perPage,
     criteria,
-    filters,
+    filters: effectiveFilters ?? filters,
     cvid,
   });
 
@@ -78,7 +228,6 @@ export async function GET(request) {
   }
 
   const { res: zohoRes, body } = listResult;
-  const filtered = Boolean(criteria || filters || cvid);
 
   if (zohoRes.status === 204) {
     let totalCount = 0;
