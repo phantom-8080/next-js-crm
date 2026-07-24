@@ -33,7 +33,6 @@ export function normalizeContractFieldApiName(apiName: string): string {
 
 /** Fields from Zoho that are not used on the contracts UI. */
 const EXCLUDED_CONTRACT_FIELD_API_NAMES = new Set([
-  "Vendor_Contract",
   "Client_Addendum_old",
   "Client_Addendum_Old",
   "Vendor_Addendum_old",
@@ -54,7 +53,6 @@ const EXCLUDED_CONTRACT_FIELD_API_NAMES = new Set([
 ]);
 
 const EXCLUDED_CONTRACT_FIELD_LABELS = new Set([
-  "vendor contract",
   "client addendum -old",
   "client addendum old",
   "vendor addendum -old",

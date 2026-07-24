@@ -18,8 +18,12 @@ import {
  */
 export const KNOWN_LOOKUP_FILTER_FIELDS = {
   Vendor: { kind: "lookup", module: "Vendors", searchFields: ["Name", "Vendor_Name"] },
+  Vendor_Contract: { kind: "lookup", module: "Vendors", searchFields: ["Name", "Vendor_Name"] },
+  Client_Contract: { kind: "lookup", module: "Contracts", searchFields: ["Name"] },
+  Connected_To: { kind: "lookup", searchFields: ["Name"] },
   // Zoho Contracts.Site is an Accounts lookup (site/location account), not a Sites module.
   Site: { kind: "lookup", module: "Accounts", searchFields: ["Account_Name", "Name"] },
+  Site_Number: { kind: "lookup", module: "Accounts", searchFields: ["Account_Name", "Name"] },
   Company_Name: { kind: "lookup", module: "Accounts", searchFields: ["Account_Name", "Name"] },
   SOW_Name: { kind: "lookup", module: "Deals", searchFields: ["SOWID", "Deal_Name", "Name"] },
   SOW: { kind: "lookup", module: "Deals", searchFields: ["SOWID", "Deal_Name", "Name"] },
@@ -45,6 +49,7 @@ export const KNOWN_LOOKUP_FILTER_FIELDS = {
   Sales_Manager: { kind: "user" },
   Sales_Associate: { kind: "user" },
   Operations_Manager: { kind: "user" },
+  Operations_Associate: { kind: "user" },
   Layout: { kind: "layout" },
 };
 
@@ -240,25 +245,26 @@ const OPERATORS_BY_DATA_TYPE = {
   ],
   ownerlookup: [
     { id: "equals", label: "is" },
-    { id: "contains", label: "contains" },
     { id: "not_equal", label: "is not" },
     { id: "in", label: "is any of" },
   ],
   userlookup: [
     { id: "equals", label: "is" },
-    { id: "contains", label: "contains" },
     { id: "not_equal", label: "is not" },
     { id: "in", label: "is any of" },
   ],
   multiuserlookup: [
     { id: "equals", label: "is" },
-    { id: "contains", label: "contains" },
+    { id: "not_equal", label: "is not" },
+    { id: "in", label: "is any of" },
+  ],
+  multiselectlookup: [
+    { id: "equals", label: "is" },
     { id: "not_equal", label: "is not" },
     { id: "in", label: "is any of" },
   ],
   lookup: [
     { id: "equals", label: "is" },
-    { id: "contains", label: "contains" },
     { id: "not_equal", label: "is not" },
     { id: "in", label: "is any of" },
   ],
@@ -275,6 +281,30 @@ const DEFAULT_OPERATORS = [
 export function getOperatorsForDataType(dataType) {
   const key = String(dataType ?? "text").toLowerCase();
   return OPERATORS_BY_DATA_TYPE[key] ?? DEFAULT_OPERATORS;
+}
+
+/**
+ * Operators for a concrete filter field.
+ * Lookups / user lookups filter by record id — never expose text `contains`.
+ * @param {string} apiName
+ * @param {string} dataType
+ * @param {string} [lookupModule]
+ */
+export function getOperatorsForFilterField(apiName, dataType, lookupModule = "") {
+  const operators = getOperatorsForDataType(dataType);
+  const type = String(dataType ?? "").toLowerCase();
+  const known = getKnownLookupFieldConfig(apiName);
+  const hasLookupModule = Boolean(String(lookupModule ?? "").trim() || known?.module);
+
+  const isLookupLike =
+    isLookupLikeDataType(type) ||
+    isUserLikeDataType(type) ||
+    known?.kind === "lookup" ||
+    known?.kind === "user" ||
+    hasLookupModule;
+
+  if (!isLookupLike) return operators;
+  return operators.filter((op) => op.id !== "contains");
 }
 
 /* ─── Filter metadata cache / Zoho load ─── */
@@ -483,10 +513,18 @@ function mapFilterField(field, section, extra = {}) {
   const apiName = field.api_name;
   if (!apiName || typeof apiName !== "string") return null;
   if (HIDDEN_API_NAMES.has(apiName) || apiName === "id") return null;
-  if (field.filterable === false) return null;
+
+  const dataType = String(field.data_type ?? "text").toLowerCase();
+  const known = getKnownLookupFieldConfig(apiName);
+  const isKnownLookup =
+    known?.kind === "lookup" ||
+    known?.kind === "user" ||
+    RELATED_LOOKUP_TYPES.has(dataType);
+
+  // Zoho sometimes marks lookups filterable=false; still show known lookups (Site, Vendor, …).
+  if (field.filterable === false && !isKnownLookup) return null;
 
   // Prefer the Site lookup (Accounts) over the unused Site_Name text field.
-  const dataType = String(field.data_type ?? "text").toLowerCase();
   if (apiName === "Site_Name" && !RELATED_LOOKUP_TYPES.has(dataType)) {
     return null;
   }
@@ -497,13 +535,18 @@ function mapFilterField(field, section, extra = {}) {
   }
 
   const options = mapPickListOptions(field);
-  const lookupModule = extractLookupModule(field);
+  const lookupModule = extractLookupModule(field) ?? known?.module;
+  const resolvedType =
+    RELATED_LOOKUP_TYPES.has(dataType) ? dataType
+    : known?.kind === "user" ? "userlookup"
+    : known?.kind === "lookup" ? "lookup"
+    : dataType;
 
   return {
     apiName,
     label: field.field_label ?? apiName,
-    dataType,
-    operators: getOperatorsForDataType(dataType),
+    dataType: resolvedType,
+    operators: getOperatorsForFilterField(apiName, resolvedType, lookupModule ?? ""),
     options,
     hasOptions: options.length > 0,
     section,
@@ -519,7 +562,10 @@ function mapFilterField(field, section, extra = {}) {
  */
 function applyContractsFilterLabelOverrides(field) {
   if (field.apiName === "Site") {
-    field.label = "Site Name";
+    field.label = "Site";
+  }
+  if (field.apiName === "Vendor_Contract") {
+    field.label = "Vendor Contract";
   }
   return field;
 }
@@ -585,7 +631,11 @@ async function buildContractsFilterMetaFromCatalog() {
         apiName: field.apiName,
         label: field.label,
         dataType,
-        operators: getOperatorsForDataType(dataType),
+        operators: getOperatorsForFilterField(
+          field.apiName,
+          dataType,
+          knownLookup?.module ?? "",
+        ),
         options: [],
         hasOptions: false,
         section: /** @type {const} */ ("fields"),
