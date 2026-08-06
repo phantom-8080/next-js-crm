@@ -1,7 +1,10 @@
 import type { CrmFieldMeta } from "@/lib/contracts/columns";
 import {
+  ALWAYS_VISIBLE_RECORD_FIELD_API_NAMES,
   filterCatalogForRecordView,
   formatCellForDisplay,
+  isAlwaysVisibleRecordField,
+  isEmptyDisplayValue,
   isExcludedContractFieldApiName,
   normalizeContractFieldApiName,
 } from "@/lib/contracts/columns";
@@ -492,7 +495,12 @@ export function mergeSectionsWithCatalog(
 
   const catalogMap = new Map<string, CrmFieldMeta>();
   for (const field of filterCatalogForRecordView(catalog)) {
-    if (dropped.has(field.apiName)) continue;
+    if (
+      dropped.has(field.apiName) &&
+      !isAlwaysVisibleRecordField(field.apiName, field.label)
+    ) {
+      continue;
+    }
     catalogMap.set(field.apiName, field);
   }
 
@@ -505,7 +513,8 @@ export function mergeSectionsWithCatalog(
     const rows: RecordFieldRow[] = [];
     for (const apiName of section.fieldApiNames) {
       const canonical = normalizeContractFieldApiName(apiName);
-      if (isExcludedContractFieldApiName(canonical) || dropped.has(canonical)) continue;
+      if (isExcludedContractFieldApiName(canonical)) continue;
+      if (dropped.has(canonical) && !isAlwaysVisibleRecordField(canonical)) continue;
       usedInSections.add(canonical);
       const meta = catalogMap.get(canonical) ?? {
         apiName: canonical,
@@ -514,15 +523,24 @@ export function mergeSectionsWithCatalog(
       };
       rows.push({ ...meta, value: getValue(canonical) });
     }
-    if (rows.length > 0 || section.kind === "subform") {
-      result.push({ section, rows });
+    const visibleRows = rows.filter((row) => !isEmptyDisplayValue(row.value));
+    if (visibleRows.length > 0 || section.kind === "subform") {
+      result.push({ section, rows: visibleRows });
     }
   }
 
   const leftover: RecordFieldRow[] = [];
   for (const field of filterCatalogForRecordView(catalog)) {
-    if (usedInSections.has(field.apiName) || dropped.has(field.apiName)) continue;
-    leftover.push({ ...field, value: getValue(field.apiName) });
+    if (usedInSections.has(field.apiName)) continue;
+    if (
+      dropped.has(field.apiName) &&
+      !isAlwaysVisibleRecordField(field.apiName, field.label)
+    ) {
+      continue;
+    }
+    const value = getValue(field.apiName);
+    if (isEmptyDisplayValue(value)) continue;
+    leftover.push({ ...field, value });
   }
 
   if (leftover.length > 0) {
@@ -554,9 +572,10 @@ export function collectRecordDetailApiNames(
 
   const names = new Set<string>(["Name", "Contract_Status"]);
 
-  const addField = (apiName: string) => {
+  const addField = (apiName: string, label?: string) => {
     const canonical = normalizeContractFieldApiName(apiName);
-    if (isExcludedContractFieldApiName(canonical) || dropped.has(canonical)) return;
+    if (isExcludedContractFieldApiName(canonical)) return;
+    if (dropped.has(canonical) && !isAlwaysVisibleRecordField(canonical, label)) return;
     names.add(canonical);
   };
 
@@ -568,12 +587,16 @@ export function collectRecordDetailApiNames(
       }
     }
     for (const field of filterCatalogForRecordView(catalog)) {
-      addField(field.apiName);
+      addField(field.apiName, field.label);
     }
   } else {
     for (const field of filterCatalogForRecordView(catalog)) {
-      addField(field.apiName);
+      addField(field.apiName, field.label);
     }
+  }
+
+  for (const apiName of ALWAYS_VISIBLE_RECORD_FIELD_API_NAMES) {
+    addField(apiName);
   }
 
   return [...names];

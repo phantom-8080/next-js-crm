@@ -43,10 +43,6 @@ const EXCLUDED_CONTRACT_FIELD_API_NAMES = new Set([
   "Unsubscribed_Time",
   "Sales_Order_Id",
   "Sales_Order_ID",
-  "Sales_Orders_Books_ID",
-  "Sales_Orders_Books_Id",
-  "Sales_Order_Books_ID",
-  "Sales_Order_Books_Id",
   "Number_of_Locations_Open_For_Bid_Olio",
   "Record_Status",
   "Record_Status__s",
@@ -62,11 +58,38 @@ const EXCLUDED_CONTRACT_FIELD_LABELS = new Set([
   "unsubscribed mode",
   "unsubscribed time",
   "sales order id",
-  "sales orders books id",
-  "sales order books id",
   "number of locations open for bid (olio)",
   "record status",
 ]);
+
+/**
+ * Always include these on record detail fetch/layout even if Zoho dropped them
+ * from a section. Empty values are still hidden by `isEmptyDisplayValue`.
+ */
+export const ALWAYS_VISIBLE_RECORD_FIELD_API_NAMES = new Set([
+  "Scheduled_Service_Notes",
+  "Exchange_Rate",
+  "Sales_Orders_Books_ID",
+  "Sales_Orders_Books_Id",
+  "Sales_Order_Books_ID",
+  "Sales_Order_Books_Id",
+  "Number_of_Services_New",
+  "Site_Acreage",
+]);
+
+export function isAlwaysVisibleRecordField(
+  apiName: string,
+  label?: string,
+): boolean {
+  const canonical = normalizeStoredApiName(apiName);
+  if (ALWAYS_VISIBLE_RECORD_FIELD_API_NAMES.has(canonical)) return true;
+  const normalizedLabel = (label ?? "").trim().toLowerCase();
+  return (
+    normalizedLabel === "site acreage (site)" ||
+    normalizedLabel === "site acreage" ||
+    /^site\s+acreage/i.test(normalizedLabel)
+  );
+}
 
 export function isExcludedContractFieldApiName(
   apiName: string,
@@ -85,7 +108,6 @@ export function isExcludedContractFieldApiName(
   if (/^hide_.*unsubscribe.*time$/i.test(canonical)) return true;
   if (/^unsubscrib(e|ed)_(mode|time)$/i.test(canonical)) return true;
   if (/^sales_order_id$/i.test(canonical)) return true;
-  if (/sales.*order.*books.*id/i.test(canonical)) return true;
 
   if (type === "image" || type === "profileimage") return true;
   if (/^record_image$/i.test(canonical)) return true;
@@ -321,6 +343,47 @@ export function formatCellForDisplay(value: unknown, dataType?: string): string 
   }
 
   return str;
+}
+
+/** True when a mapped CRM field has nothing meaningful to show on record detail. */
+export function isEmptyDisplayValue(value: unknown): boolean {
+  if (value == null) return true;
+  if (typeof value === "boolean") return false;
+  if (Array.isArray(value)) return value.length === 0;
+
+  let str = String(value)
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&#160;/gi, " ")
+    .replace(/\u00a0/g, " ")
+    .trim();
+  if (!str) return true;
+
+  // Zoho rich text often stores empty spacer HTML (`<p><br></p>`, etc.)
+  if (/<\/?[a-z]/i.test(str)) {
+    str = str
+      .replace(/<br\s*\/?>/gi, " ")
+      .replace(/<[^>]+>/g, "")
+      .replace(/&amp;/gi, "&")
+      .replace(/&lt;/gi, "<")
+      .replace(/&gt;/gi, ">")
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;/gi, "'")
+      .trim();
+  }
+
+  if (!str) return true;
+
+  const lower = str.toLowerCase();
+  return (
+    lower === "—" ||
+    lower === "–" ||
+    lower === "-" ||
+    lower === "n/a" ||
+    lower === "na" ||
+    lower === "null" ||
+    lower === "undefined" ||
+    lower === "none"
+  );
 }
 
 export function isStatusField(apiName: string) {

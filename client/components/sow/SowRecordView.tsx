@@ -16,7 +16,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import { formatCellForDisplay, isDateLikeField } from "@/lib/contracts/columns";
+import {
+  formatCellForDisplay,
+  isDateLikeField,
+  isEmptyDisplayValue,
+} from "@/lib/contracts/columns";
 import type { CrmRecordSection, RecordFieldRow } from "@/lib/contracts/recordLayout";
 import {
   labelForSowField,
@@ -174,19 +178,21 @@ export default function SowRecordView({ id }: SowRecordViewProps) {
         fieldApiNames: [...section.fields],
         kind: "fields",
       };
-      const rows: RecordFieldRow[] = section.fields.map((apiName) => ({
-        apiName,
-        label: labelForSowField(apiName),
-        value: record.fields[apiName] ?? "",
-        dataType:
-          isDateLikeField(apiName) ? "date"
-          : apiName === "Created_Time" || apiName === "Modified_Time" ? "datetime"
-          : apiName === "Site_Acreage" ? "double"
-          : apiName === "Is_OTS_SOW" ? "boolean"
-          : "text",
-      }));
+      const rows: RecordFieldRow[] = section.fields
+        .map((apiName) => ({
+          apiName,
+          label: labelForSowField(apiName),
+          value: record.fields[apiName] ?? "",
+          dataType:
+            isDateLikeField(apiName) ? "date"
+            : apiName === "Created_Time" || apiName === "Modified_Time" ? "datetime"
+            : apiName === "Site_Acreage" ? "double"
+            : apiName === "Is_OTS_SOW" ? "boolean"
+            : "text",
+        }))
+        .filter((row) => !isEmptyDisplayValue(row.value));
       return { section: crmSection, rows };
-    });
+    }).filter((group) => group.rows.length > 0);
   }, [record]);
 
   const displayRecordId = zohoRecordId || record?.id || "";

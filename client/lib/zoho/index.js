@@ -4,20 +4,16 @@ import {
   isExcludedContractCatalogField,
 } from "@/lib/contracts/columns";
 
-// Credentials for Zoho OAuth (env vars override these defaults in development/production).
+// Zoho OAuth credentials — set in client/.env.local (or Catalyst AppSail env).
 
 export const ZOHO_ACCOUNTS_URL =
   process.env.ZOHO_ACCOUNTS_URL?.trim() || "https://accounts.zoho.com";
 
-export const ZOHO_CLIENT_ID =
-  process.env.ZOHO_CLIENT_ID?.trim() || "1000.TP98XTZY6ND55UF99POR87TXHGL5IN";
+export const ZOHO_CLIENT_ID = process.env.ZOHO_CLIENT_ID?.trim() || "";
 
-export const ZOHO_CLIENT_SECRET =
-  process.env.ZOHO_CLIENT_SECRET?.trim() || "f9652b7dbde5870260bdbe9043b814d4662e20eb26";
+export const ZOHO_CLIENT_SECRET = process.env.ZOHO_CLIENT_SECRET?.trim() || "";
 
-export const ZOHO_REFRESH_TOKEN =
-  process.env.ZOHO_REFRESH_TOKEN?.trim() ||
-  "1000.395ac1976318b4eaf3016551a83ba9dd.7f736990e11b37bc0ca39629a0221063";
+export const ZOHO_REFRESH_TOKEN = process.env.ZOHO_REFRESH_TOKEN?.trim() || "";
 
 const EXPIRY_BUFFER_MS = 5 * 60 * 1000;
 
@@ -32,7 +28,7 @@ function getOAuthConfig() {
 
   if (!clientId || !clientSecret || !refreshToken) {
     throw new Error(
-      "Missing Zoho credentials in lib/zoho.js: set ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, and ZOHO_REFRESH_TOKEN.",
+      "Missing Zoho credentials: set ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, and ZOHO_REFRESH_TOKEN in client/.env.local (or AppSail env).",
     );
   }
 
@@ -79,7 +75,7 @@ async function requestAccessTokenFromRefresh() {
     const detail = json.error ?? json.message ?? JSON.stringify(json);
     const hint =
       String(detail).toLowerCase().includes("access denied") ?
-        " Check ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_REFRESH_TOKEN, and ZOHO_ACCOUNTS_URL (e.g. accounts.zoho.com vs accounts.zoho.eu) in lib/zoho.js or environment variables."
+        " Check ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_REFRESH_TOKEN, and ZOHO_ACCOUNTS_URL (e.g. accounts.zoho.com vs accounts.zoho.eu) in client/.env.local or AppSail env."
       : "";
     throw new Error(`Zoho token refresh failed: ${detail}.${hint}`);
   }
@@ -141,10 +137,9 @@ export const ZOHO_CRM_BASE = "https://www.zohoapis.com/crm/v7";
 export const ZOHO_CRM_V8_BASE = "https://www.zohoapis.com/crm/v8";
 export const ZOHO_CRM_MODULE_CONTRACTS = "Contracts";
 
-/** ZAPI key for CRM function execute (`auth_type=apikey`). Env overrides default. */
+/** ZAPI key for CRM function execute (`auth_type=apikey`). Set ZOHO_FUNCTIONS_API_KEY in env. */
 export const ZOHO_FUNCTIONS_API_KEY =
-  process.env.ZOHO_FUNCTIONS_API_KEY?.trim() ||
-  "1003.70dbcb7d3d0747c200e13f9908cc6425.2b42b9673acd1f813fe12a82b5883ffa";
+  process.env.ZOHO_FUNCTIONS_API_KEY?.trim() || "";
 
 /** Field metadata (Manage columns) — CRM v8 */
 export function getZohoModuleFieldsUrl(module = ZOHO_CRM_MODULE_CONTRACTS) {
@@ -246,7 +241,9 @@ export async function executeZohoCrmFunction(functionApiName, functionArguments,
   if (authType === "apikey") {
     const zapikey = ZOHO_FUNCTIONS_API_KEY.trim();
     if (!zapikey) {
-      throw new Error("Missing Zoho functions API key: set ZOHO_FUNCTIONS_API_KEY.");
+      throw new Error(
+        "Missing Zoho functions API key: set ZOHO_FUNCTIONS_API_KEY in client/.env.local (or AppSail env).",
+      );
     }
 
     const url =
