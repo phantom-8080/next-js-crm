@@ -521,54 +521,6 @@ function chunkApiNames(apiNames, size) {
 }
 
 /**
- * Fetches a Zoho Contracts record, batching the `fields` query to avoid URL length limits (413).
- * @param {string} recordId
- * @param {string[]} apiNames CRM field API names (without id)
- * @returns {Promise<Record<string, unknown>>}
- */
-export async function fetchZohoContractRecordById(recordId, apiNames) {
-  let unique = [...new Set(apiNames.filter(Boolean))];
-  if (unique.length === 0) {
-    unique = ["Name"];
-  }
-
-  const groups = chunkApiNames(unique, FIELDS_PER_REQUEST);
-  let merged = null;
-
-  for (const group of groups) {
-    const fieldSet = new Set(["id", ...group]);
-    const zohoFields = [...fieldSet].join(",");
-    const recordUrl = `${ZOHO_CRM_BASE}/Contracts/${encodeURIComponent(recordId)}?fields=${encodeURIComponent(zohoFields)}`;
-
-    const { res, body } = await fetchZohoJson(recordUrl);
-
-    if (!res.ok) {
-      const err = new Error("Zoho CRM error");
-      err.status = res.status;
-      err.details = body;
-      throw err;
-    }
-
-    const row = Array.isArray(body.data) ? body.data[0] : null;
-    if (!row) {
-      const err = new Error("Contract not found");
-      err.status = 404;
-      throw err;
-    }
-
-    merged = merged ? { ...merged, ...row } : { ...row };
-  }
-
-  if (!merged) {
-    const err = new Error("Contract not found");
-    err.status = 404;
-    throw err;
-  }
-
-  return merged;
-}
-
-/**
  * @param {string} module Zoho CRM module API name
  * @param {string} recordId
  * @param {string[]} apiNames CRM field API names (without id)
@@ -837,15 +789,5 @@ export async function loadContractsFieldCatalog() {
   return loadModuleFieldCatalog("Contracts", {
     excludeField: isExcludedContractCatalogField,
     fallbackFields: FALLBACK_FIELD_CATALOG,
-  });
-}
-
-/** @returns {Promise<{ fields: import("@/lib/contracts/columns").CrmFieldMeta[], source: "zoho" | "fallback" }>} */
-export async function loadVendorsFieldCatalog() {
-  return loadModuleFieldCatalog("Vendors", {
-    excludeField: isExcludedContractCatalogField,
-    fallbackFields: FALLBACK_FIELD_CATALOG.filter((f) =>
-      ["Name", "Email", "Phone", "Owner", "Created_Time", "Modified_Time"].includes(f.apiName),
-    ),
   });
 }

@@ -29,20 +29,17 @@ import {
   OlioMassUpdateWidget,
 } from "@/widgets/olio-mass-update";
 
-/** Menu items — "Renew Contracts" is 2nd-to-last. */
+/** Menu items — "Renew Contracts" is last. */
 const RENEW_CONTRACTS_LIST_LABEL = "Renew Contracts" as const;
 
 const RENEW_MENU_ITEMS = [
-  "Testing renewal",
   ACTIVATE_VENDORS_BUTTON_LABEL,
   CREATE_NO_INVOICE_NEEDED_BUTTON_LABEL,
   MASS_RENEWAL_CONTRACTS_BUTTON_LABEL,
-  "Test mass widget",
   MISSING_INVOICE_EMAIL_BUTTON_LABEL,
   OLIO_MASS_UPDATE_BUTTON_LABEL,
   ADD_MASS_SUBFORM_BUTTON_LABEL,
   RENEW_CONTRACTS_LIST_LABEL,
-  "Test Olio Mass Update",
 ] as const;
 
 type ContractListSelectionActionsProps = {
@@ -115,10 +112,7 @@ export function ContractListSelectionActions({
       return;
     }
 
-    if (
-      action === OLIO_MASS_UPDATE_BUTTON_LABEL ||
-      action === "Test Olio Mass Update"
-    ) {
+    if (action === OLIO_MASS_UPDATE_BUTTON_LABEL) {
       setOlioMassUpdateOpen(true);
       onAction?.(action);
       return;
@@ -144,8 +138,7 @@ export function ContractListSelectionActions({
 
     if (
       action === MASS_RENEWAL_CONTRACTS_BUTTON_LABEL ||
-      action === RENEW_CONTRACTS_LIST_LABEL ||
-      action === "Testing renewal"
+      action === RENEW_CONTRACTS_LIST_LABEL
     ) {
       setMassRenewalOpen(true);
       onAction?.(action);
@@ -170,18 +163,18 @@ export function ContractListSelectionActions({
           variant="outline"
           size="sm"
           className="crm-toolbar-btn h-8 px-3 text-sm"
-          onClick={() => handleAction("Change Owner")}
+          onClick={() => handleAction(OLIO_MASS_UPDATE_BUTTON_LABEL)}
         >
-          Change Owner
+          {OLIO_MASS_UPDATE_BUTTON_LABEL}
         </Button>
         <Button
           type="button"
           variant="outline"
           size="sm"
           className="crm-toolbar-btn h-8 px-3 text-sm"
-          onClick={() => handleAction("Mail Merge")}
+          onClick={() => handleAction(CREATE_NO_INVOICE_NEEDED_BUTTON_LABEL)}
         >
-          Mail Merge
+          {CREATE_NO_INVOICE_NEEDED_BUTTON_LABEL}
         </Button>
 
         <div ref={renewRef} className="relative">

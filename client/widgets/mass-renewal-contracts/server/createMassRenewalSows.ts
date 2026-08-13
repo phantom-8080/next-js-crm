@@ -176,7 +176,17 @@ function buildSowMap(
     contractData.Operations_Manager as ZohoLookup,
   );
 
-  // Field map mirrors index.js sowMap exactly (REST uses { id } for lookups).
+  const clientAddendum = appendNotes(
+    contractData.Client_Addendum,
+    form.clientAddendum,
+  );
+  const vendorAddendum = appendNotes(
+    contractData.Vendor_Addendum,
+    form.vendorAddendum,
+  );
+
+  // Field map mirrors index.js sowMap (REST uses { id } for lookups).
+  // Also writes enriched rich-text addendum fields; PO fields are intentionally omitted.
   const sowMap: Record<string, unknown> = {
     Deal_Name: "tempRec",
     Pipeline: "Scope of Work",
@@ -187,11 +197,10 @@ function buildSowMap(
       contractData.Snow_Removal_Salt_Area_Inclusions || "",
     Address: contractData.Address_Shipping_Service || "",
     Region_District_Zone: contractData.Region_District_Zone || "",
-    Addendum: appendNotes(contractData.Client_Addendum, form.clientAddendum),
-    Vendor_Addendum: appendNotes(
-      contractData.Vendor_Addendum,
-      form.vendorAddendum,
-    ),
+    Addendum: clientAddendum,
+    Vendor_Addendum: vendorAddendum,
+    Client_Addendum_Rich: clientAddendum,
+    Vendor_Addendum_Rich: vendorAddendum,
     Location_Name: contractData.Location_Name || "",
     Number_of_Managed_Locations: contractData.Number_of_Managed_Locations || "",
     Number_of_Services: contractData.Number_of_Services || "",
@@ -212,8 +221,6 @@ function buildSowMap(
       contractData.Salt_Billing_Frequency_and_Type || "",
     Category: contractData.Category || "",
     Site_Open_Up_Time: contractData.Site_Open_Time || "",
-    Client_PO_Number: contractData.PO_Number || "",
-    Client_PO_URL: contractData.PO_URL || "",
     Start_Date: addYears(contractData.Contract_Start_Date, form.yearsExtension),
     End_Date: addYears(contractData.Contract_End_Date, form.yearsExtension),
   };

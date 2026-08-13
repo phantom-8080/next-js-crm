@@ -2,13 +2,16 @@ import type { CrmFieldMeta } from "@/lib/contracts/columns";
 import {
   ALWAYS_VISIBLE_RECORD_FIELD_API_NAMES,
   filterCatalogForRecordView,
-  formatCellForDisplay,
   isAlwaysVisibleRecordField,
   isEmptyDisplayValue,
   isExcludedContractFieldApiName,
   normalizeContractFieldApiName,
 } from "@/lib/contracts/columns";
-import { fetchZohoJson, formatFieldValue, getZohoModuleLayoutsUrl } from "@/lib/zoho";
+import { fetchZohoJson, getZohoModuleLayoutsUrl } from "@/lib/zoho";
+import {
+  getSowZohoRecordUrl,
+  getVendorZohoRecordUrl,
+} from "@/lib/zoho/crmRecordUrls";
 
 export type CrmRecordSection = {
   id: string;
@@ -765,13 +768,7 @@ export async function loadContractsRecordSections(
 
 /* ─── Contract lookup fields ─── */
 
-const LOOKUP_BASE_PATH: Record<string, string> = {
-  Vendor: "/vendors",
-  SOW_Name: "/sow",
-  SOW: "/sow",
-};
-
-/** Vendor and SOW Name in the contracts list / record. */
+/** Vendor and SOW Name in the contracts list. */
 export function isContractLookupField(apiName: string, label?: string): boolean {
   const canonical = normalizeContractFieldApiName(apiName);
   if (canonical === "Vendor" || canonical === "SOW_Name" || canonical === "SOW") {
@@ -780,15 +777,15 @@ export function isContractLookupField(apiName: string, label?: string): boolean 
   return label?.trim().toLowerCase() === "sow name";
 }
 
+/** Zoho CRM deep link for Vendor / SOW lookup cells. */
 export function getContractLookupHref(apiName: string, lookupId: string): string | null {
   const id = lookupId.trim();
   if (!id) return null;
 
   const canonical = normalizeContractFieldApiName(apiName);
-  const base = LOOKUP_BASE_PATH[canonical] ?? LOOKUP_BASE_PATH[apiName];
-  if (!base) return null;
-
-  return `${base}/${encodeURIComponent(id)}`;
+  if (canonical === "Vendor") return getVendorZohoRecordUrl(id);
+  if (canonical === "SOW_Name" || canonical === "SOW") return getSowZohoRecordUrl(id);
+  return null;
 }
 
 export function getContractFieldLookupId(
@@ -809,78 +806,9 @@ export function getContractFieldLookupId(
   return undefined;
 }
 
-/* ─── Scope of Work subform ─── */
-
-export type ContractScopeOfWorkRow = {
-  id: string;
-  serviceName: string;
-  vendorPrice: string;
-  clientPrice: string;
-  startDate: string;
-  endDate: string;
-  numberOfServices: string;
-};
-
-function formatOurServicesLabel(value: unknown): string {
-  if (value == null || value === "") return "";
-
-  if (typeof value === "object" && !Array.isArray(value)) {
-    const obj = value as { name?: string; id?: string };
-    if (obj.name != null && String(obj.name).trim() !== "") return String(obj.name);
-    return "";
-  }
-
-  const str = String(value).trim();
-  if (/^\d{10,}$/.test(str)) return "";
-  return str;
-}
-
-function formatSubformMoney(value: unknown): string {
-  const formatted = formatFieldValue(value);
-  if (!formatted) return "";
-  const num = Number(String(formatted).replace(/,/g, ""));
-  if (!Number.isNaN(num)) {
-    return num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  }
-  return formatted;
-}
-
-function formatSubformDate(value: unknown): string {
-  const raw = formatFieldValue(value);
-  if (!raw) return "";
-  return formatCellForDisplay(raw, "date");
-}
-
-export function mapContractScopeOfWork(raw: unknown): ContractScopeOfWorkRow[] {
-  if (!Array.isArray(raw)) return [];
-
-  return raw.map((row, index) => {
-    const r = row as Record<string, unknown>;
-    const serviceName = formatOurServicesLabel(r.OurServices ?? r.Our_Services);
-
-    return {
-      id: r.id != null ? String(r.id) : `contract-sow-line-${index}`,
-      serviceName: serviceName || "—",
-      vendorPrice: formatSubformMoney(r.Vendor_Price ?? r.Vendor_Price1),
-      clientPrice: formatSubformMoney(
-        r.Client_Price ?? r.Invoice_Price ?? r.Client_Price1,
-      ),
-      startDate: formatSubformDate(r.Start_Date),
-      endDate: formatSubformDate(r.End_Date),
-      numberOfServices: formatFieldValue(
-        r.Number_of_Services ?? r.No_of_Services ?? r.Number_of_Service,
-      ),
-    };
-  });
-}
-
-export function isScopeOfWorkSubformSection(fieldApiNames: string[]): boolean {
-  return fieldApiNames.some((api) => /scope_of_work/i.test(api));
-}
-
 /* ─── Rich text display ─── */
 
-/** Zoho rich-text / long multi-line fields shown as formatted content on record detail. */
+/** Zoho rich-text / long multi-line fields shown as formatted content in the list. */
 const RICH_TEXT_API_NAMES = new Set([
   "Client_Addendum_Rich",
   "Vendor_Addendum_Rich",

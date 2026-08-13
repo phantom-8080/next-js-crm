@@ -15,7 +15,6 @@ import { InlineLoadingShimmer, PaginationLoadingShimmer } from "@/components/sha
 import { ContractColumnsSettings } from "@/components/contracts/ContractColumnsSettings";
 import { ResizableTableHeadCell } from "@/components/shared/ResizableTableHeadCell";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
-import { useTheme, type ThemeMode } from "@/components/layout/ThemeProvider";
 import { Button } from "@/components/ui/button";
 import { useContractVisibleColumns } from "@/hooks/contracts/useContractVisibleColumns";
 import { useResizableColumnWidths } from "@/hooks/table/useResizableColumnWidths";
@@ -51,13 +50,13 @@ import {
   shouldRenderAsRichHtml,
 } from "@/lib/contracts/recordLayout";
 import { CustomViewsDropdown } from "@/components/contracts/CustomViewsDropdown";
+import { getContractZohoRecordUrl } from "@/lib/zoho/crmRecordUrls";
 
 const SELECT_COL_WIDTH = 44;
 const SELECT_COL = { apiName: "_select" } as const;
 
-function openContractRecord(recordId: string, theme: ThemeMode) {
-  const url = `/contracts/${encodeURIComponent(recordId)}?theme=${theme}`;
-  window.open(url, "_blank", "noopener,noreferrer");
+function openContractRecord(recordId: string) {
+  window.open(getContractZohoRecordUrl(recordId), "_blank", "noopener,noreferrer");
 }
 
 type ContractStatusTone = "active" | "closed";
@@ -262,13 +261,11 @@ function ContractCard({
   columns,
   selected,
   onSelectedChange,
-  theme,
 }: {
   row: ContractRecord;
   columns: { apiName: string; label: string; dataType: string }[];
   selected: boolean;
   onSelectedChange: (selected: boolean) => void;
-  theme: ThemeMode;
 }) {
   const title =
     row.fields.Name?.trim() ||
@@ -282,11 +279,11 @@ function ContractCard({
       tabIndex={0}
       title={title}
       data-state={selected ? "selected" : undefined}
-      onClick={() => openContractRecord(row.id, theme)}
+      onClick={() => openContractRecord(row.id)}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          openContractRecord(row.id, theme);
+          openContractRecord(row.id);
         }
       }}
       className={cn(
@@ -344,7 +341,6 @@ export default function ContractsTable({
   onApplyCustomView,
   customViewsRefreshKey = 0,
 }: ContractsTableProps) {
-  const { theme } = useTheme();
   const { visibleApiNames, setVisibleApiNames } = useContractVisibleColumns();
   const [fieldCatalog, setFieldCatalog] = useState<CrmFieldMeta[]>(FALLBACK_FIELD_CATALOG);
   const [columnsOpen, setColumnsOpen] = useState(false);
@@ -802,7 +798,6 @@ export default function ContractsTable({
                       columns={columnMeta}
                       selected={selectedIds.has(row.id)}
                       onSelectedChange={(selected) => toggleRowSelected(row.id, selected)}
-                      theme={theme}
                     />
                   ))
                 }
@@ -838,11 +833,11 @@ export default function ContractsTable({
                             tabIndex={0}
                             data-state={isSelected ? "selected" : undefined}
                             className="crm-row-hover border-crm-border text-crm-text"
-                            onClick={() => openContractRecord(row.id, theme)}
+                            onClick={() => openContractRecord(row.id)}
                             onKeyDown={(e) => {
                               if (e.key === "Enter" || e.key === " ") {
                                 e.preventDefault();
-                                openContractRecord(row.id, theme);
+                                openContractRecord(row.id);
                               }
                             }}
                           >

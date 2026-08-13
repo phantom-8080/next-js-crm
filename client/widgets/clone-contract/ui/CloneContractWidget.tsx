@@ -12,6 +12,7 @@ import type {
   VendorSuggestion,
 } from "@/widgets/clone-contract/types";
 import type { WidgetOpenContext } from "@/widgets/types";
+import { getContractZohoRecordUrl } from "@/lib/zoho/crmRecordUrls";
 
 type CloneContractWidgetProps = WidgetOpenContext & {
   open: boolean;
@@ -237,9 +238,7 @@ export function CloneContractWidget({
         if (navigateTimerRef.current) clearTimeout(navigateTimerRef.current);
         navigateTimerRef.current = setTimeout(() => {
           onClose();
-          window.location.assign(
-            `/contracts/${encodeURIComponent(newId)}`,
-          );
+          window.location.assign(getContractZohoRecordUrl(newId));
         }, 800);
       } else {
         setError("Contract created but ID not returned");
