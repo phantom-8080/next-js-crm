@@ -3,10 +3,13 @@ import {
   expandApiNamesForZohoFetch,
   getContractFieldDisplayValue,
   mergeLegacyFieldValues,
+  SCOPE_OF_WORK_SUBFORM_API_NAME,
 } from "@/lib/contracts/columns";
 import {
   fetchContractIdsByOurServices,
   fetchContractsByIds,
+  fetchScopeOfWorkSummariesByContractIds,
+  listNeedsScopeOfWorkSummary,
   splitOurServicesFromFiltersJson,
 } from "@/lib/contracts/ourServicesFilter";
 import {
@@ -18,7 +21,7 @@ import {
   ZOHO_CRM_BASE,
 } from "@/lib/zoho";
 
-function mapListContract(row, visibleApiNames) {
+function mapListContract(row, visibleApiNames, sowSummaries) {
   const fetchNames = expandApiNamesForZohoFetch(visibleApiNames);
   const mapped = mapZohoRecord(row, fetchNames);
   const merged = mergeLegacyFieldValues(mapped.fields);
@@ -26,11 +29,43 @@ function mapListContract(row, visibleApiNames) {
   for (const apiName of visibleApiNames) {
     fields[apiName] = getContractFieldDisplayValue(merged, apiName);
   }
+
+  const contractId = row.id != null ? String(row.id) : "";
+  if (listNeedsScopeOfWorkSummary(visibleApiNames) && contractId && sowSummaries) {
+    const summary = sowSummaries.get(contractId) ?? "";
+    if (visibleApiNames.includes(SCOPE_OF_WORK_SUBFORM_API_NAME)) {
+      fields[SCOPE_OF_WORK_SUBFORM_API_NAME] = summary;
+    }
+    if (visibleApiNames.includes("Scope_of_Work")) {
+      fields.Scope_of_Work = summary;
+    }
+  }
+
   return {
-    id: row.id != null ? String(row.id) : "",
+    id: contractId,
     fields,
     lookups: mapped.lookups,
   };
+}
+
+/**
+ * @param {any[]} rows
+ * @param {string[]} visibleApiNames
+ */
+async function mapContractsWithScopeOfWork(rows, visibleApiNames) {
+  /** @type {Map<string, string>} */
+  let sowSummaries = new Map();
+  if (listNeedsScopeOfWorkSummary(visibleApiNames) && rows.length > 0) {
+    try {
+      sowSummaries = await fetchScopeOfWorkSummariesByContractIds(
+        rows.map((row) => (row?.id != null ? String(row.id) : "")),
+      );
+    } catch (err) {
+      console.error("Scope of Work list enrichment failed:", err);
+      sowSummaries = new Map();
+    }
+  }
+  return rows.map((row) => mapListContract(row, visibleApiNames, sowSummaries));
 }
 
 function emptyListResponse({
@@ -157,7 +192,7 @@ export async function GET(request) {
         );
       }
 
-      const contracts = rows.map((row) => mapListContract(row, visibleApiNames));
+      const contracts = await mapContractsWithScopeOfWork(rows, visibleApiNames);
       return Response.json({
         contracts,
         totalCount,
@@ -259,7 +294,7 @@ export async function GET(request) {
     );
   }
 
-  const contracts = (body.data ?? []).map((row) => mapListContract(row, visibleApiNames));
+  const contracts = await mapContractsWithScopeOfWork(body.data ?? [], visibleApiNames);
 
   let totalCount = contracts.length;
   if (countResult.res.ok && typeof countResult.body.count === "number") {

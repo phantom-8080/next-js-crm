@@ -31,6 +31,9 @@ export function normalizeContractFieldApiName(apiName: string): string {
   return normalizeStoredApiName(apiName);
 }
 
+/** Contracts subform that holds Scope of Work / Our Services line items. */
+export const SCOPE_OF_WORK_SUBFORM_API_NAME = "Our_Services_SubForm" as const;
+
 /** Fields from Zoho that are not used on the contracts UI. */
 const EXCLUDED_CONTRACT_FIELD_API_NAMES = new Set([
   "Client_Addendum_old",
@@ -192,6 +195,9 @@ export function expandApiNamesForZohoFetch(apiNames: string[]): string[] {
       }
     }
   }
+  // Subform line items are not returned on Contracts list — loaded separately.
+  set.delete(SCOPE_OF_WORK_SUBFORM_API_NAME);
+  set.delete("Scope_of_Work");
   return [...set];
 }
 
@@ -237,10 +243,26 @@ function parseStoredColumnList(raw: string | null): string[] | null {
   }
 }
 
+const SCOPE_OF_WORK_COLUMN_MIGRATION_KEY = "contracts-sow-column-migrated-v1";
+
+/** Insert Scope of Work after Vendor (or at end) when missing. */
+export function ensureScopeOfWorkColumn(apiNames: string[]): string[] {
+  if (apiNames.includes(SCOPE_OF_WORK_SUBFORM_API_NAME)) return apiNames;
+  const next = [...apiNames];
+  const vendorIdx = next.indexOf("Vendor");
+  if (vendorIdx >= 0) {
+    next.splice(vendorIdx + 1, 0, SCOPE_OF_WORK_SUBFORM_API_NAME);
+  } else {
+    next.push(SCOPE_OF_WORK_SUBFORM_API_NAME);
+  }
+  return next;
+}
+
 /** Default columns shown on first visit */
 export const DEFAULT_VISIBLE_API_NAMES = [
   "Contract_Status",
   "Vendor",
+  SCOPE_OF_WORK_SUBFORM_API_NAME,
   "Contract_End_Date",
   "Contract_Start_Date",
   "Company_Name",
@@ -251,6 +273,11 @@ export const DEFAULT_VISIBLE_API_NAMES = [
 export const FALLBACK_FIELD_CATALOG: CrmFieldMeta[] = [
   { apiName: "Contract_Status", label: "Contract Status", dataType: "picklist" },
   { apiName: "Vendor", label: "Vendor", dataType: "lookup" },
+  {
+    apiName: SCOPE_OF_WORK_SUBFORM_API_NAME,
+    label: "Scope of Work",
+    dataType: "subform",
+  },
   { apiName: "SOW_Name", label: "SOW Name", dataType: "lookup" },
   { apiName: "Contract_End_Date", label: "Contract End Date", dataType: "date" },
   { apiName: "Contract_Start_Date", label: "Contract Start Date", dataType: "date" },
@@ -273,12 +300,18 @@ export function loadVisibleApiNames(): string[] {
 
   if (!loaded) return [...DEFAULT_VISIBLE_API_NAMES];
 
-  const normalized = normalizeVisibleApiNames(loaded);
+  let normalized = normalizeVisibleApiNames(loaded);
+  const migrated = localStorage.getItem(SCOPE_OF_WORK_COLUMN_MIGRATION_KEY) === "1";
+  if (!migrated) {
+    normalized = ensureScopeOfWorkColumn(normalized);
+    localStorage.setItem(SCOPE_OF_WORK_COLUMN_MIGRATION_KEY, "1");
+  }
 
   const rawV1 = localStorage.getItem(CONTRACTS_COLUMNS_STORAGE_KEY);
   const needsPersist =
     !fromV1 ||
     fromV2 != null ||
+    !migrated ||
     (rawV1 != null && JSON.stringify(normalized) !== rawV1) ||
     normalized.length !== loaded.length;
 

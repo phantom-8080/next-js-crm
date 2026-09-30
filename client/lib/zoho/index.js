@@ -296,6 +296,58 @@ export async function executeZohoCrmFunction(functionApiName, functionArguments,
 
 /* ─── Record mapping ─── */
 
+/** Product / service lookup label from a Scope of Work subform cell. */
+function formatOurServicesLabel(value) {
+  if (value == null || value === "") return "";
+
+  if (typeof value === "object" && !Array.isArray(value)) {
+    if (value.name != null && String(value.name).trim() !== "") {
+      return String(value.name).trim();
+    }
+    if (value.Product_Name != null && String(value.Product_Name).trim() !== "") {
+      return String(value.Product_Name).trim();
+    }
+    return "";
+  }
+
+  const str = String(value).trim();
+  // Bare Zoho ids are not useful in list cells.
+  if (/^\d{10,}$/.test(str)) return "";
+  return str;
+}
+
+/**
+ * Flatten Our_Services_SubForm / Scope_of_Work rows to a comma-separated
+ * service-name summary for list views.
+ * @param {unknown} raw
+ */
+export function formatSubformServicesSummary(raw) {
+  if (!Array.isArray(raw) || raw.length === 0) return "";
+
+  const names = [];
+  const seen = new Set();
+  for (const row of raw) {
+    if (!row || typeof row !== "object") continue;
+    const label = formatOurServicesLabel(
+      /** @type {Record<string, unknown>} */ (row).OurServices ??
+        /** @type {Record<string, unknown>} */ (row).Our_Services,
+    );
+    if (!label || seen.has(label)) continue;
+    seen.add(label);
+    names.push(label);
+  }
+  return names.join(", ");
+}
+
+function looksLikeServicesSubformRow(value) {
+  return (
+    value != null &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    ("OurServices" in value || "Our_Services" in value)
+  );
+}
+
 export function formatFieldValue(value) {
   if (value == null || value === "") return "";
 
@@ -308,6 +360,9 @@ export function formatFieldValue(value) {
   }
 
   if (Array.isArray(value)) {
+    if (value.some(looksLikeServicesSubformRow)) {
+      return formatSubformServicesSummary(value);
+    }
     return value
       .map((v) => formatFieldValue(v))
       .filter(Boolean)

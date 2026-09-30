@@ -23,7 +23,9 @@ function isLongTextColumn(apiName: string) {
     apiName === "Vendor" ||
     apiName === "Company_Name" ||
     apiName === "Name" ||
-    apiName === "Site"
+    apiName === "Site" ||
+    apiName === "Our_Services_SubForm" ||
+    apiName === "Scope_of_Work"
   );
 }
 

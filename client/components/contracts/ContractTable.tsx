@@ -86,10 +86,13 @@ function isLongTextColumn(apiName: string, dataType?: string) {
     apiName === "Vendor" ||
     apiName === "Company_Name" ||
     apiName === "Name" ||
-    apiName === "Site"
+    apiName === "Site" ||
+    apiName === "Our_Services_SubForm" ||
+    apiName === "Scope_of_Work"
   ) {
     return true;
   }
+  if (dataType === "subform") return true;
   return isRichTextField(apiName, dataType);
 }
 
@@ -200,6 +203,8 @@ function CellContent({
     apiName === "Vendor" ||
     apiName === "Company_Name" ||
     apiName === "Name" ||
+    apiName === "Our_Services_SubForm" ||
+    apiName === "Scope_of_Work" ||
     isLongTextColumn(apiName, dataType)
   ) {
     const display = value || "—";
@@ -217,6 +222,13 @@ function CellContent({
 function getColumnWidthPx(col: { apiName: string; dataType?: string }) {
   if (isStatusField(col.apiName)) return 128;
   if (isRichTextField(col.apiName, col.dataType)) return 280;
+  if (
+    col.apiName === "Our_Services_SubForm" ||
+    col.apiName === "Scope_of_Work" ||
+    col.dataType === "subform"
+  ) {
+    return 260;
+  }
   if (isLongTextColumn(col.apiName, col.dataType)) return 220;
   if (isDateLikeField(col.apiName, col.dataType)) return 132;
   return 168;
@@ -371,10 +383,14 @@ export default function ContractsTable({
     }
     return columnsToShow.map((apiName: string) => {
       const meta = byApi.get(apiName);
+      const fallbackLabel =
+        apiName === "Our_Services_SubForm" || apiName === "Scope_of_Work"
+          ? "Scope of Work"
+          : apiName.replace(/_/g, " ");
       return {
         apiName,
-        label: meta?.label ?? apiName.replace(/_/g, " "),
-        dataType: meta?.dataType ?? "text",
+        label: meta?.label ?? fallbackLabel,
+        dataType: meta?.dataType ?? (apiName === "Our_Services_SubForm" ? "subform" : "text"),
       };
     });
   }, [fieldCatalog, columnsToShow]);

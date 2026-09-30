@@ -1,6 +1,7 @@
 import {
   escapeZohoCriteriaValue,
   fetchZohoJson,
+  formatSubformServicesSummary,
   ZOHO_CRM_BASE,
 } from "@/lib/zoho";
 
@@ -10,6 +11,8 @@ export const OUR_SERVICES_SUBFORM_MODULE = "Our_Services_SubForm";
 const OUR_SERVICES_FIELD = "OurServices";
 const MAX_SUBFORM_PAGES = 10;
 const SUBFORM_PER_PAGE = 200;
+/** Parent_Id:in batches — keep criteria URLs under Zoho limits. */
+const PARENT_ID_BATCH = 50;
 
 /**
  * @param {string | null | undefined} apiName
@@ -17,6 +20,18 @@ const SUBFORM_PER_PAGE = 200;
 export function isOurServicesFilterApiName(apiName) {
   const name = String(apiName ?? "").trim();
   return name === OUR_SERVICES_FIELD || name.endsWith(`.${OUR_SERVICES_FIELD}`);
+}
+
+/**
+ * True when the contracts list should load Scope of Work from the subform module.
+ * Zoho Contracts list/get-by-ids does not return subform line items.
+ * @param {string[] | null | undefined} visibleApiNames
+ */
+export function listNeedsScopeOfWorkSummary(visibleApiNames) {
+  if (!Array.isArray(visibleApiNames)) return false;
+  return visibleApiNames.some(
+    (name) => name === OUR_SERVICES_SUBFORM_MODULE || name === "Scope_of_Work",
+  );
 }
 
 /**
@@ -158,6 +173,72 @@ export async function fetchContractIdsByOurServices(serviceFilter) {
   }
 
   return [...parentIds];
+}
+
+/**
+ * Load Scope of Work service-name summaries for a page of Contracts.
+ * Zoho omits subform arrays on Contracts list / ids fetches, so we read the
+ * Our_Services_SubForm module keyed by Parent_Id.
+ *
+ * @param {string[]} contractIds
+ * @returns {Promise<Map<string, string>>} contractId → "Service A, Service B"
+ */
+export async function fetchScopeOfWorkSummariesByContractIds(contractIds) {
+  const ids = [...new Set(contractIds.map((id) => String(id).trim()).filter(Boolean))];
+  /** @type {Map<string, unknown[]>} */
+  const rowsByParent = new Map();
+  for (const id of ids) rowsByParent.set(id, []);
+
+  if (ids.length === 0) {
+    return new Map();
+  }
+
+  for (let i = 0; i < ids.length; i += PARENT_ID_BATCH) {
+    const batch = ids.slice(i, i + PARENT_ID_BATCH);
+    const criteria = `(Parent_Id:in:${batch.map(escapeZohoCriteriaValue).join(",")})`;
+
+    for (let page = 1; page <= MAX_SUBFORM_PAGES; page += 1) {
+      const params = new URLSearchParams();
+      params.set("criteria", criteria);
+      params.set("fields", "Parent_Id,OurServices");
+      params.set("page", String(page));
+      params.set("per_page", String(SUBFORM_PER_PAGE));
+
+      const url = `${ZOHO_CRM_BASE}/${encodeURIComponent(OUR_SERVICES_SUBFORM_MODULE)}/search?${params}`;
+      const { res, body } = await fetchZohoJson(url);
+
+      if (res.status === 204 || body?.code === "NO_DATA") {
+        break;
+      }
+      if (!res.ok) {
+        const err = new Error(
+          body?.message ||
+            body?.code ||
+            `Scope of Work subform search failed (HTTP ${res.status})`,
+        );
+        err.status = res.status;
+        err.details = body;
+        throw err;
+      }
+
+      const rows = Array.isArray(body?.data) ? body.data : [];
+      for (const row of rows) {
+        const parentId = parentIdFromSubformRow(row?.Parent_Id);
+        if (!parentId || !rowsByParent.has(parentId)) continue;
+        rowsByParent.get(parentId).push(row);
+      }
+
+      if (!body?.info?.more_records) break;
+    }
+  }
+
+  /** @type {Map<string, string>} */
+  const summaries = new Map();
+  for (const [parentId, rows] of rowsByParent) {
+    const summary = formatSubformServicesSummary(rows);
+    if (summary) summaries.set(parentId, summary);
+  }
+  return summaries;
 }
 
 /**
