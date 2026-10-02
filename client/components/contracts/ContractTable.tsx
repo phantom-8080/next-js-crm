@@ -13,10 +13,12 @@ import { ContractListSelectionActions } from "@/components/contracts/ContractLis
 import { ListTable } from "@/components/shared/ListTable";
 import { InlineLoadingShimmer, PaginationLoadingShimmer } from "@/components/shared/LoadingShimmer";
 import { ContractColumnsSettings } from "@/components/contracts/ContractColumnsSettings";
+import { ColumnHeaderMenu, type ColumnHeaderMenuAction } from "@/components/shared/ColumnHeaderMenu";
 import { ResizableTableHeadCell } from "@/components/shared/ResizableTableHeadCell";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { Button } from "@/components/ui/button";
 import { useContractVisibleColumns } from "@/hooks/contracts/useContractVisibleColumns";
+import { usePinnedColumns } from "@/hooks/contracts/usePinnedColumns";
 import { useResizableColumnWidths } from "@/hooks/table/useResizableColumnWidths";
 import { cn } from "@/lib/utils";
 import {
@@ -31,6 +33,12 @@ import {
   normalizeContractFieldApiName,
   normalizeVisibleApiNames,
 } from "@/lib/contracts/columns";
+import {
+  canSortColumn,
+  isZohoApiSortableField,
+  sortContractRecords,
+  type ColumnSortState,
+} from "@/lib/contracts/columnSort";
 import type {
   ContractFieldFilterSelection,
   ContractFilterApplyPayload,
@@ -46,7 +54,8 @@ import {
   htmlToPlainText,
   isContractLookupField,
   isRichTextField,
-  sanitizeCrmRichHtml,
+  cleanLongTextForList,
+  sanitizeCrmRichHtmlForList,
   shouldRenderAsRichHtml,
 } from "@/lib/contracts/recordLayout";
 import { CustomViewsDropdown } from "@/components/contracts/CustomViewsDropdown";
@@ -88,7 +97,9 @@ function isLongTextColumn(apiName: string, dataType?: string) {
     apiName === "Name" ||
     apiName === "Site" ||
     apiName === "Our_Services_SubForm" ||
-    apiName === "Scope_of_Work"
+    apiName === "Scope_of_Work" ||
+    apiName === "Contract_Summary" ||
+    apiName === "Client_Summary"
   ) {
     return true;
   }
@@ -96,17 +107,22 @@ function isLongTextColumn(apiName: string, dataType?: string) {
   return isRichTextField(apiName, dataType);
 }
 
-function TruncateWrap({
+/** Wrap/scroll long cell values instead of truncating with ellipsis. */
+function ScrollableCell({
   title,
   children,
+  dense = false,
 }: {
   title?: string;
   children: ReactNode;
+  /** Extra height for Contract Summary / Scope of Work / rich text. */
+  dense?: boolean;
 }) {
   return (
     <div
-      className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
+      className={cn("crm-cell-scroll", dense && "crm-cell-scroll--tall")}
       title={title}
+      onWheel={(e) => e.stopPropagation()}
     >
       {children}
     </div>
@@ -132,17 +148,17 @@ function LookupFieldCell({
 
   if (!href) {
     return (
-      <TruncateWrap title={value || undefined}>
+      <ScrollableCell title={value || undefined}>
         <span className="text-crm-text">{display}</span>
-      </TruncateWrap>
+      </ScrollableCell>
     );
   }
 
   return (
-    <TruncateWrap title={value}>
+    <ScrollableCell title={value}>
       <button
         type="button"
-        className="max-w-full cursor-pointer truncate text-left text-crm-link hover:underline"
+        className="max-w-full cursor-pointer break-words text-left text-crm-link hover:underline"
         onClick={(e) => {
           e.stopPropagation();
           openLookupRecord(href);
@@ -150,7 +166,7 @@ function LookupFieldCell({
       >
         {display}
       </button>
-    </TruncateWrap>
+    </ScrollableCell>
   );
 }
 
@@ -176,46 +192,62 @@ function CellContent({
     );
   }
 
+  const tallScroll =
+    apiName === "Contract_Summary" ||
+    apiName === "Client_Summary" ||
+    apiName === "Our_Services_SubForm" ||
+    apiName === "Scope_of_Work" ||
+    isRichTextField(apiName, dataType) ||
+    dataType === "subform";
+
   if (shouldRenderAsRichHtml(apiName, value, dataType)) {
-    const plain = htmlToPlainText(value);
+    const plain = cleanLongTextForList(htmlToPlainText(value));
     return (
-      <div
-        className="crm-rich-text crm-rich-text--list"
-        title={plain || undefined}
-        dangerouslySetInnerHTML={{ __html: sanitizeCrmRichHtml(value) }}
-        onClick={(e) => e.stopPropagation()}
-      />
+      <ScrollableCell title={plain || undefined} dense={tallScroll}>
+        <div
+          className="crm-rich-text crm-rich-text--list"
+          dangerouslySetInnerHTML={{ __html: sanitizeCrmRichHtmlForList(value) }}
+          onClick={(e) => e.stopPropagation()}
+        />
+      </ScrollableCell>
     );
   }
 
   if (isRichTextField(apiName, dataType) || value.includes("\n")) {
+    const cleaned = cleanLongTextForList(value);
     return (
-      <div
-        className="crm-plain-notes crm-plain-notes--list whitespace-pre-wrap break-words text-crm-text"
-        title={value || undefined}
-      >
-        {value || "—"}
-      </div>
+      <ScrollableCell title={cleaned || undefined} dense={tallScroll}>
+        <div className="crm-plain-notes crm-plain-notes--list whitespace-pre-wrap break-words text-crm-text">
+          {cleaned || "—"}
+        </div>
+      </ScrollableCell>
     );
   }
 
-  if (
-    apiName === "Vendor" ||
-    apiName === "Company_Name" ||
-    apiName === "Name" ||
-    apiName === "Our_Services_SubForm" ||
-    apiName === "Scope_of_Work" ||
-    isLongTextColumn(apiName, dataType)
-  ) {
-    const display = value || "—";
+  if (isLongTextColumn(apiName, dataType)) {
+    let display = cleanLongTextForList(value) || "—";
+    // Scope of Work often arrives as a long comma-separated list — stack for scrollable reading.
+    if (
+      (apiName === "Our_Services_SubForm" || apiName === "Scope_of_Work") &&
+      display.includes(",")
+    ) {
+      display = display
+        .split(/\s*,\s*/)
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .join("\n");
+    }
     return (
-      <TruncateWrap title={value || undefined}>
-        <span className="text-crm-text">{display}</span>
-      </TruncateWrap>
+      <ScrollableCell title={value ? display : undefined} dense={tallScroll}>
+        <span className="whitespace-pre-wrap break-words text-crm-text">{display}</span>
+      </ScrollableCell>
     );
   }
+
   return (
-    <span className={cn("text-crm-text", value && "tabular-nums")}>{value || "—"}</span>
+    <ScrollableCell title={value || undefined}>
+      <span className={cn("text-crm-text", value && "tabular-nums")}>{value || "—"}</span>
+    </ScrollableCell>
   );
 }
 
@@ -238,15 +270,19 @@ function getColumnCellClass(
   col: { apiName: string },
   index: number,
   variant: "head" | "body",
+  pinned = false,
 ) {
   void col;
   void index;
 
   if (variant === "head") {
-    return "column-heading overflow-visible px-3";
+    return cn("column-heading overflow-visible px-3", pinned && "crm-col-pinned");
   }
 
-  return "overflow-hidden px-3 py-4 text-crm-text";
+  return cn(
+    "min-w-0 overflow-hidden px-3 py-3 align-top text-crm-text",
+    pinned && "crm-col-pinned",
+  );
 }
 
 const PAGE_SIZE_OPTIONS = [10, 30, 50, 100, 200] as const;
@@ -266,6 +302,8 @@ type ContractsTableProps = {
   onApplyCustomView?: (payload: ContractFilterApplyPayload) => void;
   /** Bump to reload custom views after creating one from the sidebar. */
   customViewsRefreshKey?: number;
+  /** Open sidebar filters focused on this column. */
+  onFilterByColumn?: (apiName: string, label: string) => void;
 };
 
 function ContractCard({
@@ -352,8 +390,10 @@ export default function ContractsTable({
   onOfflineDemoChange,
   onApplyCustomView,
   customViewsRefreshKey = 0,
+  onFilterByColumn,
 }: ContractsTableProps) {
   const { visibleApiNames, setVisibleApiNames } = useContractVisibleColumns();
+  const { pinnedApiNames, togglePinned, isPinned } = usePinnedColumns();
   const [fieldCatalog, setFieldCatalog] = useState<CrmFieldMeta[]>(FALLBACK_FIELD_CATALOG);
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [contracts, setContracts] = useState<ContractRecord[]>([]);
@@ -365,6 +405,7 @@ export default function ContractsTable({
   const [error, setError] = useState<string | null>(null);
   const [offlineDemo, setOfflineDemo] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [columnSort, setColumnSort] = useState<ColumnSortState | null>(null);
 
   const handleFieldsLoaded = useCallback((fields: CrmFieldMeta[]) => {
     setFieldCatalog(fields);
@@ -381,7 +422,7 @@ export default function ContractsTable({
       byApi.set(field.apiName, field);
       byApi.set(normalizeContractFieldApiName(field.apiName), field);
     }
-    return columnsToShow.map((apiName: string) => {
+    const base = columnsToShow.map((apiName: string) => {
       const meta = byApi.get(apiName);
       const fallbackLabel =
         apiName === "Our_Services_SubForm" || apiName === "Scope_of_Work"
@@ -393,7 +434,16 @@ export default function ContractsTable({
         dataType: meta?.dataType ?? (apiName === "Our_Services_SubForm" ? "subform" : "text"),
       };
     });
-  }, [fieldCatalog, columnsToShow]);
+
+    const pinnedSet = new Set(
+      pinnedApiNames.filter((name) => base.some((col) => col.apiName === name)),
+    );
+    const pinnedCols = pinnedApiNames
+      .map((name) => base.find((col) => col.apiName === name))
+      .filter((col): col is (typeof base)[number] => Boolean(col));
+    const rest = base.filter((col) => !pinnedSet.has(col.apiName));
+    return [...pinnedCols, ...rest];
+  }, [fieldCatalog, columnsToShow, pinnedApiNames]);
 
   const fieldsParam = useMemo(
     () => encodeURIComponent(buildFieldsQueryParam(columnsToShow)),
@@ -403,7 +453,7 @@ export default function ContractsTable({
   useEffect(() => {
     setPage(1);
     setSelectedIds(new Set());
-  }, [searchCriteria, customViewId, fieldSelections]);
+  }, [searchCriteria, customViewId, fieldSelections, columnSort]);
 
   useEffect(() => {
     setSelectedIds(new Set());
@@ -426,8 +476,14 @@ export default function ContractsTable({
           searchCriteria && !customViewId ?
             `&criteria=${encodeURIComponent(searchCriteria)}`
           : "";
+        // Always pass sort; API only forwards Zoho-supported fields (id /
+        // Created_Time / Modified_Time). Other columns are page-sorted locally.
+        const sortPart =
+          columnSort ?
+            `&sortBy=${encodeURIComponent(columnSort.apiName)}&sortOrder=${columnSort.direction}`
+          : "";
         const res = await fetch(
-          `/api/contracts?page=${page}&perPage=${pageSize}&fields=${fieldsParam}${criteriaPart}${cvidPart}`,
+          `/api/contracts?page=${page}&perPage=${pageSize}&fields=${fieldsParam}${criteriaPart}${cvidPart}${sortPart}`,
         );
         const data = (await res.json()) as {
           contracts?: ContractRecord[];
@@ -462,10 +518,14 @@ export default function ContractsTable({
               ),
               lookups: r.lookups,
             }));
+            const dataTypeByApi = new Map(
+              fieldCatalog.map((field) => [field.apiName, field.dataType] as const),
+            );
+            const sorted = sortContractRecords(rows, columnSort, dataTypeByApi);
             const start = (page - 1) * pageSize;
-            const slice = rows.slice(start, start + pageSize);
+            const slice = sorted.slice(start, start + pageSize);
             setContracts(slice);
-            const total = rows.length;
+            const total = sorted.length;
             setTotalCount(total);
             const filteredActive =
               fieldSelections.length > 0 ||
@@ -475,16 +535,24 @@ export default function ContractsTable({
             } else if (!filteredActive && onFilteredTotalChange) {
               onFilteredTotalChange(null);
             }
-            setHasMore(start + pageSize < rows.length);
+            setHasMore(start + pageSize < sorted.length);
             if (data.zohoUnreachable && data.error) {
               setError(null);
             }
           } else {
-            setContracts(data.contracts ?? []);
+            const liveRows = data.contracts ?? [];
+            const dataTypeByApi = new Map(
+              fieldCatalog.map((field) => [field.apiName, field.dataType] as const),
+            );
+            setContracts(
+              columnSort && !isZohoApiSortableField(columnSort.apiName) ?
+                sortContractRecords(liveRows, columnSort, dataTypeByApi)
+              : liveRows,
+            );
             const total =
               typeof data.totalCount === "number" ?
                 data.totalCount
-              : (data.contracts ?? []).length;
+              : liveRows.length;
             setTotalCount(total);
             if (data.filtered && onFilteredTotalChange) {
               onFilteredTotalChange(total);
@@ -522,6 +590,8 @@ export default function ContractsTable({
     customViewId,
     fieldSelections,
     columnsToShow,
+    fieldCatalog,
+    columnSort,
     onFilteredTotalChange,
     onContractsLoadingChange,
     onOfflineDemoChange,
@@ -533,6 +603,43 @@ export default function ContractsTable({
       setPage(1);
     },
     [setVisibleApiNames],
+  );
+
+  const hideColumn = useCallback(
+    (apiName: string) => {
+      if (columnsToShow.length <= 1) return;
+      applyColumns(columnsToShow.filter((name) => name !== apiName));
+      if (columnSort?.apiName === apiName) setColumnSort(null);
+    },
+    [applyColumns, columnsToShow, columnSort],
+  );
+
+  const handleColumnMenuAction = useCallback(
+    (col: { apiName: string; label: string; dataType: string }, action: ColumnHeaderMenuAction) => {
+      if (action === "asc") {
+        setColumnSort({ apiName: col.apiName, direction: "asc" });
+        setPage(1);
+        return;
+      }
+      if (action === "desc") {
+        setColumnSort({ apiName: col.apiName, direction: "desc" });
+        setPage(1);
+        return;
+      }
+      if (action === "pin") {
+        togglePinned(col.apiName);
+        return;
+      }
+      if (action === "hide") {
+        hideColumn(col.apiName);
+        return;
+      }
+      if (action === "filter") {
+        onOpenFilters?.();
+        onFilterByColumn?.(col.apiName, col.label);
+      }
+    },
+    [hideColumn, onFilterByColumn, onOpenFilters, togglePinned],
   );
 
   const totalPages =
@@ -586,11 +693,8 @@ export default function ContractsTable({
     });
   }, [pageIds]);
 
-  const { columnSizeStyle, tableMinWidthPx, beginColumnResize } = useResizableColumnWidths(
-    "crm-column-widths-contracts-v1",
-    columnMeta,
-    getColumnWidthPx,
-  );
+  const { getWidthPx, columnSizeStyle, tableMinWidthPx, beginColumnResize } =
+    useResizableColumnWidths("crm-column-widths-contracts-v1", columnMeta, getColumnWidthPx);
 
   const listColumns = useMemo(() => [SELECT_COL, ...columnMeta], [columnMeta]);
   const loaderColumns = useMemo(
@@ -601,6 +705,17 @@ export default function ContractsTable({
     [columnMeta],
   );
 
+  const pinnedLeftByApiName = useMemo(() => {
+    const map = new Map<string, number>();
+    let left = SELECT_COL_WIDTH;
+    for (const col of columnMeta) {
+      if (!isPinned(col.apiName)) break;
+      map.set(col.apiName, left);
+      left += getWidthPx(col);
+    }
+    return map;
+  }, [columnMeta, getWidthPx, isPinned]);
+
   const listColumnSizeStyle = useCallback(
     (col: { apiName: string }): CSSProperties => {
       if (col.apiName === SELECT_COL.apiName) {
@@ -608,11 +723,16 @@ export default function ContractsTable({
           width: SELECT_COL_WIDTH,
           minWidth: SELECT_COL_WIDTH,
           maxWidth: SELECT_COL_WIDTH,
+          left: 0,
         };
       }
-      return columnSizeStyle(col);
+      const pinnedLeft = pinnedLeftByApiName.get(col.apiName);
+      return {
+        ...columnSizeStyle(col),
+        ...(pinnedLeft != null ? { left: pinnedLeft } : null),
+      };
     },
-    [columnSizeStyle],
+    [columnSizeStyle, pinnedLeftByApiName],
   );
 
   const tableWidthStyle = useMemo(
@@ -626,7 +746,10 @@ export default function ContractsTable({
   function renderTableHeadRow() {
     return (
       <TableRow className="border-crm-border hover:bg-transparent">
-        <TableHead className="h-10 px-3 py-0">
+        <TableHead
+          className="crm-col-select-sticky h-10 px-3 py-0"
+          style={{ left: 0, width: SELECT_COL_WIDTH, minWidth: SELECT_COL_WIDTH, maxWidth: SELECT_COL_WIDTH }}
+        >
           <input
             type="checkbox"
             checked={allPageSelected}
@@ -640,16 +763,35 @@ export default function ContractsTable({
           />
         </TableHead>
         {columnMeta.map(
-          (col: { apiName: string; label: string; dataType: string }, i: number) => (
-            <ResizableTableHeadCell
-              key={col.apiName}
-              className={getColumnCellClass(col, i, "head")}
-              style={columnSizeStyle(col)}
-              label={col.label}
-              showDivider={i < columnMeta.length - 1}
-              onResizeStart={(clientX) => beginColumnResize(col.apiName, clientX, col)}
-            />
-          ),
+          (col: { apiName: string; label: string; dataType: string }, i: number) => {
+            const pinned = isPinned(col.apiName);
+            const pinnedLeft = pinnedLeftByApiName.get(col.apiName);
+            return (
+              <ResizableTableHeadCell
+                key={col.apiName}
+                className={getColumnCellClass(col, i, "head", pinned)}
+                style={{
+                  ...columnSizeStyle(col),
+                  ...(pinnedLeft != null ? { left: pinnedLeft } : null),
+                }}
+                label={
+                  <ColumnHeaderMenu
+                    columnLabel={col.label}
+                    pinned={pinned}
+                    sortDirection={
+                      columnSort?.apiName === col.apiName ? columnSort.direction : null
+                    }
+                    canSort={canSortColumn(col.apiName, col.dataType)}
+                    canHide={columnsToShow.length > 1}
+                    canFilter={Boolean(onFilterByColumn || onOpenFilters)}
+                    onAction={(action) => handleColumnMenuAction(col, action)}
+                  />
+                }
+                showDivider={i < columnMeta.length - 1}
+                onResizeStart={(clientX) => beginColumnResize(col.apiName, clientX, col)}
+              />
+            );
+          },
         )}
       </TableRow>
     );
@@ -795,8 +937,8 @@ export default function ContractsTable({
                     columns={loaderColumns}
                     getCellClassName={(col, i) =>
                       col.apiName === SELECT_COL.apiName ?
-                        "px-3 py-4"
-                      : getColumnCellClass(col, i - 1, "body")
+                        "crm-col-select-sticky px-3 py-4"
+                      : getColumnCellClass(col, i - 1, "body", isPinned(col.apiName))
                     }
                     getCellStyle={(col) => listColumnSizeStyle(col)}
                   />
@@ -858,7 +1000,7 @@ export default function ContractsTable({
                             }}
                           >
                             <TableCell
-                              className="px-3 py-4"
+                              className="crm-col-select-sticky px-3 py-4"
                               style={listColumnSizeStyle(SELECT_COL)}
                               onClick={(e) => e.stopPropagation()}
                             >
@@ -877,13 +1019,18 @@ export default function ContractsTable({
                               ) => {
                                 const raw = getContractFieldDisplayValue(row.fields, col.apiName);
                                 const value = formatCellForDisplay(raw, col.dataType);
-                                const cellClass = getColumnCellClass(col, i, "body");
+                                const pinned = isPinned(col.apiName);
+                                const cellClass = getColumnCellClass(col, i, "body", pinned);
                                 const lookupId = getContractFieldLookupId(row.lookups, col.apiName);
+                                const pinnedLeft = pinnedLeftByApiName.get(col.apiName);
                                 return (
                                   <TableCell
                                     key={col.apiName}
                                     className={cellClass}
-                                    style={columnSizeStyle(col)}
+                                    style={{
+                                      ...columnSizeStyle(col),
+                                      ...(pinnedLeft != null ? { left: pinnedLeft } : null),
+                                    }}
                                   >
                                     <CellContent
                                       apiName={col.apiName}

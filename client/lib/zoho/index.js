@@ -152,6 +152,43 @@ export function getZohoModuleLayoutsUrl(module = ZOHO_CRM_MODULE_CONTRACTS) {
 }
 
 /**
+ * Module metadata — CRM v8.
+ * Scope: ZohoCRM.settings.modules.READ (or settings.ALL).
+ * Note: OAuth responses often omit nested related_lists even with include=.
+ * Prefer getZohoRelatedListsUrl for Filter By Related Modules.
+ * @param {string} [module]
+ * @param {string[]} [include]
+ */
+export function getZohoModuleMetaUrl(
+  module = ZOHO_CRM_MODULE_CONTRACTS,
+  include = ["related_lists"],
+) {
+  const params = new URLSearchParams();
+  if (include.length > 0) params.set("include", include.join(","));
+  const qs = params.toString();
+  return (
+    `${ZOHO_CRM_V8_BASE}/settings/modules/${encodeURIComponent(module)}` +
+    (qs ? `?${qs}` : "")
+  );
+}
+
+/**
+ * Related lists for a module (Filter By Related Modules) — CRM v8.
+ * Pass layout_id to include layout-specific relationships (e.g. Client Contract).
+ * @param {string} [module]
+ * @param {{ layoutId?: string }} [options]
+ */
+export function getZohoRelatedListsUrl(
+  module = ZOHO_CRM_MODULE_CONTRACTS,
+  { layoutId } = {},
+) {
+  const params = new URLSearchParams();
+  params.set("module", module);
+  if (layoutId) params.set("layout_id", String(layoutId));
+  return `${ZOHO_CRM_V8_BASE}/settings/related_lists?${params.toString()}`;
+}
+
+/**
  * Search records with criteria — CRM v3 (requires ZohoSearch.securesearch.READ)
  * @param {string} [module]
  * @param {{
@@ -471,13 +508,22 @@ export function buildZohoModuleListUrls({
   criteria = null,
   filters = null,
   cvid = null,
+  sortBy = null,
+  sortOrder = null,
 }) {
   const encodedModule = encodeURIComponent(module);
   const fieldsQ = encodeURIComponent(fields);
+  const sortByName = typeof sortBy === "string" ? sortBy.trim() : "";
+  const sortOrderNorm =
+    String(sortOrder ?? "").toLowerCase() === "desc" ? "desc" : "asc";
+  const sortQuery =
+    sortByName ?
+      `&sort_by=${encodeURIComponent(sortByName)}&sort_order=${sortOrderNorm}`
+    : "";
 
   if (cvid) {
     return {
-      listUrl: `${base}/${encodedModule}?cvid=${encodeURIComponent(cvid)}&fields=${fieldsQ}&per_page=${perPage}&page=${page}`,
+      listUrl: `${base}/${encodedModule}?cvid=${encodeURIComponent(cvid)}&fields=${fieldsQ}&per_page=${perPage}&page=${page}${sortQuery}`,
       countUrl: `${base}/${encodedModule}/actions/count?cvid=${encodeURIComponent(cvid)}`,
     };
   }
@@ -485,7 +531,7 @@ export function buildZohoModuleListUrls({
   if (filters) {
     const filtersQ = encodeURIComponent(filters);
     return {
-      listUrl: `${base}/${encodedModule}?fields=${fieldsQ}&per_page=${perPage}&page=${page}&filters=${filtersQ}`,
+      listUrl: `${base}/${encodedModule}?fields=${fieldsQ}&per_page=${perPage}&page=${page}&filters=${filtersQ}${sortQuery}`,
       countUrl: `${base}/${encodedModule}/actions/count?filters=${filtersQ}`,
     };
   }
@@ -496,6 +542,10 @@ export function buildZohoModuleListUrls({
     params.set("fields", fields);
     params.set("page", String(page));
     params.set("per_page", String(perPage));
+    if (sortByName) {
+      params.set("sort_by", sortByName);
+      params.set("sort_order", sortOrderNorm);
+    }
     return {
       listUrl: `${base}/${encodedModule}/search?${params.toString()}`,
       countUrl: `${base}/${encodedModule}/actions/count?criteria=${encodeURIComponent(criteria)}`,
@@ -503,7 +553,7 @@ export function buildZohoModuleListUrls({
   }
 
   return {
-    listUrl: `${base}/${encodedModule}?fields=${fieldsQ}&per_page=${perPage}&page=${page}`,
+    listUrl: `${base}/${encodedModule}?fields=${fieldsQ}&per_page=${perPage}&page=${page}${sortQuery}`,
     countUrl: `${base}/${encodedModule}/actions/count`,
   };
 }

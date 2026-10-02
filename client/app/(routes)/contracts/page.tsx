@@ -18,6 +18,7 @@ export default function ContractsPage() {
   const [contractsLoading, setContractsLoading] = useState(false);
   const [offlineDemo, setOfflineDemo] = useState(false);
   const [customViewsRefreshKey, setCustomViewsRefreshKey] = useState(0);
+  const [focusFilterField, setFocusFilterField] = useState<string | null>(null);
 
   const handleFilteredTotalChange = useCallback((total: number | null) => {
     setFilteredTotal(total);
@@ -60,6 +61,8 @@ export default function ContractsPage() {
           onZohoCustomViewCreated={() => {
             setCustomViewsRefreshKey((k) => k + 1);
           }}
+          focusFilterField={focusFilterField}
+          onFocusFilterFieldHandled={() => setFocusFilterField(null)}
         />
         <ContractsTable
           filtersOpen={filtersOpen}
@@ -78,6 +81,10 @@ export default function ContractsPage() {
           onContractsLoadingChange={handleContractsLoadingChange}
           onOfflineDemoChange={handleOfflineDemoChange}
           onApplyCustomView={handleApplyFilters}
+          onFilterByColumn={(_apiName, label) => {
+            setFiltersOpen(true);
+            setFocusFilterField(label);
+          }}
         />
       </div>
     </div>

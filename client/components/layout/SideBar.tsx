@@ -24,28 +24,359 @@ import {
   isUserLikeDataType,
   looksLikeZohoId,
 } from "@/lib/contracts/filterMeta";
+import { encodeRelatedModuleSelection } from "@/lib/contracts/relatedModuleFilter";
+
+type ManualFilterDraft = {
+  operator: string;
+  value: string;
+  value2: string;
+  /** Display name when `value` is a Zoho lookup/user id. */
+  displayLabel?: string;
+};
+
+type RelatedNestedDraft = {
+  apiName: string;
+  operator: string;
+  value: string;
+  /** Display name when `value` is a Zoho lookup/user id. */
+  displayLabel?: string;
+};
+
+type RelatedModuleDraft = {
+  enabled: boolean;
+  presence: "with" | "without";
+  nested: RelatedNestedDraft[];
+};
+
+function emptyRelatedDraft(): RelatedModuleDraft {
+  return { enabled: false, presence: "with", nested: [] };
+}
+
+function relatedDraftIsActive(draft: RelatedModuleDraft | undefined) {
+  if (!draft?.enabled) return false;
+  if (draft.presence === "with" || draft.presence === "without") return true;
+  return false;
+}
+
+function nestedDraftIsValid(nested: RelatedNestedDraft) {
+  if (!nested.apiName.trim()) return false;
+  if (nested.operator === "is_empty" || nested.operator === "is_not_empty") return true;
+  return nested.value.trim().length > 0;
+}
+
+function RelatedModuleFilterSection({
+  field,
+  draft,
+  zohoModule,
+  onChange,
+}: {
+  field: ContractFilterFieldMeta;
+  draft: RelatedModuleDraft;
+  /** Parent list module (Contracts) — used as suggestion API host module. */
+  zohoModule: string;
+  onChange: (patch: Partial<RelatedModuleDraft> | ((prev: RelatedModuleDraft) => RelatedModuleDraft)) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [childFields, setChildFields] = useState<ContractFilterFieldMeta[]>([]);
+  const [childLoading, setChildLoading] = useState(false);
+  const [childError, setChildError] = useState<string | null>(null);
+  const active = relatedDraftIsActive(draft);
+  const nestedOps = field.operators.length ?
+      [
+        { id: "is_not_empty", label: "is not empty" },
+        { id: "is_empty", label: "is empty" },
+        { id: "equals", label: "is" },
+        { id: "not_equal", label: "is not" },
+        { id: "contains", label: "contains" },
+        { id: "starts_with", label: "starts with" },
+      ]
+    : [];
+
+  useEffect(() => {
+    if (!open || !field.lookupModule) return;
+    let cancelled = false;
+
+    async function loadChildFields() {
+      setChildLoading(true);
+      setChildError(null);
+      try {
+        const res = await fetch(
+          `/api/modules/${encodeURIComponent(field.lookupModule!)}/filter-fields`,
+        );
+        const data = (await res.json()) as {
+          fields?: ContractFilterFieldMeta[];
+          error?: string;
+        };
+        if (!res.ok) throw new Error(data.error ?? "Failed to load related fields");
+        if (!cancelled) setChildFields(data.fields ?? []);
+      } catch (err) {
+        if (!cancelled) {
+          setChildError(err instanceof Error ? err.message : "Failed to load related fields");
+          setChildFields([]);
+        }
+      } finally {
+        if (!cancelled) setChildLoading(false);
+      }
+    }
+
+    void loadChildFields();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, field.lookupModule]);
+
+  function updateNested(index: number, patch: Partial<RelatedNestedDraft>) {
+    onChange((prev) => {
+      const nested = prev.nested.map((row, i) => (i === index ? { ...row, ...patch } : row));
+      return { ...prev, enabled: true, nested };
+    });
+  }
+
+  function addNested() {
+    onChange((prev) => ({
+      ...prev,
+      enabled: true,
+      nested: [
+        ...prev.nested,
+        { apiName: "", operator: "is_not_empty", value: "", displayLabel: undefined },
+      ],
+    }));
+  }
+
+  function removeNested(index: number) {
+    onChange((prev) => ({
+      ...prev,
+      nested: prev.nested.filter((_, i) => i !== index),
+    }));
+  }
+
+  return (
+    <section className="border-b border-crm-border/60 last:border-b-0">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="group flex w-full cursor-pointer items-center justify-between rounded-lg px-2 py-2 transition hover:bg-zinc-100 dark:hover:bg-zinc-800"
+      >
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate text-left text-sm",
+            active ? "font-medium text-crm-text" : "text-crm-text",
+          )}
+        >
+          {field.label}
+          {active ? <span className="ml-1.5 text-xs text-blue-400">(1)</span> : null}
+        </span>
+        <ChevronDown
+          className={cn(
+            "h-4 w-4 shrink-0 text-crm-text-muted transition group-hover:text-crm-text",
+            open && "rotate-180",
+          )}
+        />
+      </button>
+
+      {open ?
+        <div className="space-y-2 px-2 pb-3">
+          <label className="flex cursor-pointer items-center gap-2 rounded-lg px-1 py-1.5">
+            <input
+              type="checkbox"
+              checked={draft.enabled}
+              onChange={(e) =>
+                onChange({
+                  enabled: e.target.checked,
+                  presence: draft.presence || "with",
+                })
+              }
+              className="h-4 w-4 shrink-0 rounded border-crm-border bg-crm-panel accent-blue-500"
+            />
+            <span className="text-sm text-crm-text">{field.label}</span>
+          </label>
+
+          {draft.enabled ?
+            <>
+              {/* Zoho-style presence row: Contracts [with|without] Any <Related Module> */}
+              <div className="pl-6 text-sm leading-7 text-crm-text">
+                <span>Contracts</span>{" "}
+                <select
+                  value={draft.presence}
+                  onChange={(e) =>
+                    onChange({
+                      presence: e.target.value === "without" ? "without" : "with",
+                      enabled: true,
+                    })
+                  }
+                  className={cn(
+                    "mx-0.5 inline-block h-7 cursor-pointer align-middle rounded border border-crm-border bg-crm-panel py-0 pl-1.5 pr-0 text-sm text-crm-text outline-none focus:border-blue-500",
+                    draft.presence === "without" ? "w-[4.75rem]" : "w-[3.5rem]",
+                  )}
+                  aria-label="Related module presence"
+                >
+                  {(field.operators.length ? field.operators : [
+                    { id: "with", label: "with" },
+                    { id: "without", label: "without" },
+                  ]).map((op) => (
+                    <option key={op.id} value={op.id}>
+                      {op.label}
+                    </option>
+                  ))}
+                </select>{" "}
+                <span>Any {field.label}</span>
+              </div>
+
+              {draft.nested.map((row, index) => {
+                const selectedChild = childFields.find((f) => f.apiName === row.apiName);
+                const ops = selectedChild?.operators?.length ? selectedChild.operators : nestedOps;
+                const needsValue =
+                  row.operator !== "is_empty" && row.operator !== "is_not_empty";
+                return (
+                  <div
+                    key={`nested-${index}`}
+                    className="ml-6 space-y-2 rounded-lg border border-crm-border/70 p-2"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-crm-text-muted">Field</span>
+                      <button
+                        type="button"
+                        onClick={() => removeNested(index)}
+                        className="cursor-pointer text-xs text-crm-text-muted hover:text-crm-text"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                    <select
+                      value={row.apiName}
+                      onChange={(e) => {
+                        const apiName = e.target.value;
+                        const child = childFields.find((f) => f.apiName === apiName);
+                        const lookupLike =
+                          Boolean(child) &&
+                          (fieldUsesIdSuggestions(child!) || Boolean(child?.lookupModule));
+                        updateNested(index, {
+                          apiName,
+                          operator: lookupLike ? "equals" : "is_not_empty",
+                          value: "",
+                          displayLabel: undefined,
+                        });
+                      }}
+                      className="h-9 w-full rounded-lg border border-crm-border bg-crm-panel px-2 text-sm text-crm-text outline-none focus:border-blue-500"
+                    >
+                      <option value="">Select field…</option>
+                      {childFields.map((child) => (
+                        <option key={child.apiName} value={child.apiName}>
+                          {child.label}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={row.operator}
+                      onChange={(e) =>
+                        updateNested(index, {
+                          operator: e.target.value,
+                          ...(e.target.value === "is_empty" || e.target.value === "is_not_empty" ?
+                            { value: "", displayLabel: undefined }
+                          : {}),
+                        })
+                      }
+                      className="h-9 w-full rounded-lg border border-crm-border bg-crm-panel px-2 text-sm text-crm-text outline-none focus:border-blue-500"
+                    >
+                      {ops.map((op) => (
+                        <option key={op.id} value={op.id}>
+                          {op.label}
+                        </option>
+                      ))}
+                    </select>
+                    {needsValue && selectedChild ?
+                      fieldUsesIdSuggestions(selectedChild) || Boolean(selectedChild.lookupModule) ?
+                        <FilterValueSuggestionInput
+                          field={selectedChild}
+                          zohoModule={zohoModule}
+                          value={row.value}
+                          displayLabel={row.displayLabel}
+                          placeholder={`Search ${selectedChild.label.toLowerCase()}…`}
+                          onChange={(patch) =>
+                            updateNested(index, {
+                              value: patch.value,
+                              displayLabel: patch.displayLabel,
+                            })
+                          }
+                        />
+                      : <input
+                          type="text"
+                          value={row.value}
+                          onChange={(e) =>
+                            updateNested(index, {
+                              value: e.target.value,
+                              displayLabel: undefined,
+                            })
+                          }
+                          placeholder="Value…"
+                          className="h-9 w-full rounded-lg border border-crm-border bg-crm-panel px-3 text-sm text-crm-text outline-none focus:border-blue-500"
+                        />
+                    : needsValue ?
+                      <input
+                        type="text"
+                        value={row.value}
+                        onChange={(e) =>
+                          updateNested(index, {
+                            value: e.target.value,
+                            displayLabel: undefined,
+                          })
+                        }
+                        placeholder="Value…"
+                        className="h-9 w-full rounded-lg border border-crm-border bg-crm-panel px-3 text-sm text-crm-text outline-none focus:border-blue-500"
+                      />
+                    : null}
+                  </div>
+                );
+              })}
+
+              <button
+                type="button"
+                onClick={addNested}
+                disabled={childLoading || !field.lookupModule}
+                className="cursor-pointer pl-6 text-sm font-medium text-blue-500 hover:text-blue-400 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Add Field
+              </button>
+              {childLoading ? <p className="pl-6 text-xs text-crm-text-muted">Loading fields…</p> : null}
+              {childError ? <p className="pl-6 text-xs text-red-400">{childError}</p> : null}
+            </>
+          : null}
+        </div>
+      : null}
+    </section>
+  );
+}
 
 function FilterSectionGroup({
   section,
   filterSearch,
   fieldSelections,
   manualDrafts,
+  relatedDrafts: _relatedDrafts,
   zohoModule,
   onToggleFieldValue,
   onManualChange,
+  onRelatedChange,
   getManualDraft,
+  getRelatedDraft,
 }: {
   section: ContractFilterSection;
   filterSearch: string;
   fieldSelections: Map<string, Set<string>>;
   manualDrafts: Map<string, ManualFilterDraft>;
+  relatedDrafts: Map<string, RelatedModuleDraft>;
   zohoModule: string;
   onToggleFieldValue: (apiName: string, value: string) => void;
   onManualChange: (apiName: string, field: ContractFilterFieldMeta, patch: Partial<ManualFilterDraft>) => void;
+  onRelatedChange: (
+    apiName: string,
+    patch: Partial<RelatedModuleDraft> | ((prev: RelatedModuleDraft) => RelatedModuleDraft),
+  ) => void;
   getManualDraft: (apiName: string, field: ContractFilterFieldMeta) => ManualFilterDraft;
+  getRelatedDraft: (apiName: string) => RelatedModuleDraft;
 }) {
-  const [open, setOpen] = useState(section.id === "fields");
   const q = filterSearch.trim().toLowerCase();
+  const [open, setOpen] = useState(section.id === "fields" || section.id === "related_modules");
 
   const visibleFields = useMemo(() => {
     if (!q) return section.fields;
@@ -58,6 +389,10 @@ function FilterSectionGroup({
           f.options.some((o) => o.label.toLowerCase().includes(q))),
     );
   }, [section.fields, q]);
+
+  useEffect(() => {
+    if (q) setOpen(true);
+  }, [q]);
 
   if (visibleFields.length === 0) return null;
 
@@ -92,14 +427,22 @@ function FilterSectionGroup({
                     {field.groupLabel}
                   </p>
                 : null}
-                <FieldFilterSection
-                  field={field}
-                  zohoModule={zohoModule}
-                  selectedValues={fieldSelections.get(field.apiName) ?? new Set()}
-                  onToggleValue={(value) => onToggleFieldValue(field.apiName, value)}
-                  manualDraft={getManualDraft(field.apiName, field)}
-                  onManualChange={(patch) => onManualChange(field.apiName, field, patch)}
-                />
+                {field.dataType === "related_module" ?
+                  <RelatedModuleFilterSection
+                    field={field}
+                    draft={getRelatedDraft(field.apiName)}
+                    zohoModule={zohoModule}
+                    onChange={(patch) => onRelatedChange(field.apiName, patch)}
+                  />
+                : <FieldFilterSection
+                    field={field}
+                    zohoModule={zohoModule}
+                    selectedValues={fieldSelections.get(field.apiName) ?? new Set()}
+                    onToggleValue={(value) => onToggleFieldValue(field.apiName, value)}
+                    manualDraft={getManualDraft(field.apiName, field)}
+                    onManualChange={(patch) => onManualChange(field.apiName, field, patch)}
+                  />
+                }
               </div>
             );
           })}
@@ -108,14 +451,6 @@ function FilterSectionGroup({
     </section>
   );
 }
-
-type ManualFilterDraft = {
-  operator: string;
-  value: string;
-  value2: string;
-  /** Display name when `value` is a Zoho lookup/user id. */
-  displayLabel?: string;
-};
 
 function defaultOperator(field: ContractFilterFieldMeta) {
   const contains = field.operators.find((op) => op.id === "contains");
@@ -128,6 +463,7 @@ function isDateType(dataType: string) {
 }
 
 function fieldUsesIdSuggestions(field: ContractFilterFieldMeta) {
+  if (field.dataType === "related_module") return false;
   const known = getKnownLookupFieldConfig(field.apiName);
   return (
     isLookupLikeDataType(field.dataType) ||
@@ -138,7 +474,7 @@ function fieldUsesIdSuggestions(field: ContractFilterFieldMeta) {
   );
 }
 
-const MIN_SUGGESTION_CHARS = 3;
+const MIN_SUGGESTION_CHARS = 2;
 
 function FilterValueSuggestionInput({
   field,
@@ -472,6 +808,9 @@ type SideBarProps = {
   listFiltersActive?: boolean;
   /** Fired after a filter is persisted as a Zoho custom view (Contracts). */
   onZohoCustomViewCreated?: (customViewId: string) => void;
+  /** Focus a field from the column header “Filter by” action (label or api name). */
+  focusFilterField?: string | null;
+  onFocusFilterFieldHandled?: () => void;
 };
 
 function emptyManualDraft(field: ContractFilterFieldMeta): ManualFilterDraft {
@@ -493,6 +832,8 @@ export default function SideBar({
   filterMetaOverride,
   listFiltersActive = false,
   onZohoCustomViewCreated,
+  focusFilterField = null,
+  onFocusFilterFieldHandled,
 }: SideBarProps) {
   const applyClosePending = useRef(false);
   const persistToZohoCrm = zohoModule === "Contracts";
@@ -503,6 +844,7 @@ export default function SideBar({
   const [filterSearch, setFilterSearch] = useState("");
   const [fieldSelections, setFieldSelections] = useState<Map<string, Set<string>>>(() => new Map());
   const [manualDrafts, setManualDrafts] = useState<Map<string, ManualFilterDraft>>(() => new Map());
+  const [relatedDrafts, setRelatedDrafts] = useState<Map<string, RelatedModuleDraft>>(() => new Map());
   const [selectedCustomViewId, setSelectedCustomViewId] = useState<string | null>(null);
   const [savedFilters, setSavedFilters] = useState<SavedFilterPreset[]>([]);
   const [saveName, setSaveName] = useState("");
@@ -526,6 +868,7 @@ export default function SideBar({
     if (searchCriteria == null && customViewId != null) {
       setFieldSelections(new Map());
       setManualDrafts(new Map());
+      setRelatedDrafts(new Map());
       setSelectedCustomViewId(null);
       setActiveSavedFilterId(null);
       return;
@@ -533,6 +876,7 @@ export default function SideBar({
     if (searchCriteria == null && customViewId == null && !listFiltersActive) {
       setFieldSelections(new Map());
       setManualDrafts(new Map());
+      setRelatedDrafts(new Map());
       setSelectedCustomViewId(null);
       setActiveSavedFilterId(null);
     }
@@ -586,12 +930,13 @@ export default function SideBar({
   const hasCheckboxFilters = [...fieldSelections.values()].some((s) => s.size > 0);
   const hasManualFilters = [...manualDrafts.entries()].some(([apiName, draft]) => {
     const field = fieldMeta.find((f) => f.apiName === apiName);
-    if (field?.dataType === "custom_view") return false;
+    if (field?.dataType === "custom_view" || field?.dataType === "related_module") return false;
     if (draft.operator === "between") {
       return draft.value.trim() && draft.value2.trim();
     }
     return draft.value.trim().length > 0;
   });
+  const hasRelatedFilters = [...relatedDrafts.values()].some((draft) => relatedDraftIsActive(draft));
   /** Sidebar chrome only — dropdown custom views do not count as sidebar filters. */
   const hasActiveFilter = Boolean(searchCriteria || listFiltersActive);
 
@@ -661,6 +1006,25 @@ export default function SideBar({
   }, [open]);
 
   useEffect(() => {
+    if (!open || !focusFilterField) return;
+    const needle = focusFilterField.trim();
+    if (!needle) {
+      onFocusFilterFieldHandled?.();
+      return;
+    }
+    const lower = needle.toLowerCase();
+    const match = fieldMeta.find(
+      (f) =>
+        f.apiName.toLowerCase() === lower ||
+        f.label.toLowerCase() === lower ||
+        f.label.toLowerCase().includes(lower) ||
+        f.apiName.toLowerCase().includes(lower),
+    );
+    setFilterSearch(match?.label ?? needle);
+    onFocusFilterFieldHandled?.();
+  }, [open, focusFilterField, fieldMeta, onFocusFilterFieldHandled]);
+
+  useEffect(() => {
     if (applyClosePending.current && !applyLoading) {
       applyClosePending.current = false;
       onClose();
@@ -692,8 +1056,72 @@ export default function SideBar({
     });
   }
 
+  function updateRelatedDraft(
+    apiName: string,
+    patch: Partial<RelatedModuleDraft> | ((prev: RelatedModuleDraft) => RelatedModuleDraft),
+  ) {
+    setSelectedCustomViewId(null);
+    setActiveSavedFilterId(null);
+    setRelatedDrafts((prev) => {
+      const next = new Map(prev);
+      const current = next.get(apiName) ?? emptyRelatedDraft();
+      const updated = typeof patch === "function" ? patch(current) : { ...current, ...patch };
+      next.set(apiName, updated);
+      return next;
+    });
+  }
+
   function getManualDraft(apiName: string, field: ContractFilterFieldMeta) {
     return manualDrafts.get(apiName) ?? emptyManualDraft(field);
+  }
+
+  function getRelatedDraft(apiName: string) {
+    return relatedDrafts.get(apiName) ?? emptyRelatedDraft();
+  }
+
+  function appendRelatedSelections(
+    nextRelated: Map<string, RelatedModuleDraft>,
+    selections: ContractFieldFilterSelection[],
+    displaySelections: ContractFieldFilterSelection[],
+  ) {
+    for (const field of fieldMeta) {
+      if (field.dataType !== "related_module") continue;
+      const draft = nextRelated.get(field.apiName) ?? emptyRelatedDraft();
+      if (!relatedDraftIsActive(draft) || !field.lookupModule) continue;
+
+      const nested = draft.nested.filter(nestedDraftIsValid).map((row) => ({
+        apiName: row.apiName,
+        operator: row.operator,
+        values:
+          row.operator === "is_empty" || row.operator === "is_not_empty" ?
+            []
+          : [row.value.trim()],
+      }));
+
+      const encoded = encodeRelatedModuleSelection({
+        relatedListApiName: field.apiName,
+        lookupModule: field.lookupModule,
+        presence: draft.presence,
+        nested,
+      });
+      if (!encoded) continue;
+      selections.push(encoded);
+      displaySelections.push({
+        apiName: field.apiName,
+        operator: draft.presence,
+        values: [
+          nested.length > 0 ?
+            nested
+              .map((n) =>
+                n.operator === "is_not_empty" || n.operator === "is_empty" ?
+                  `${n.apiName} ${n.operator}`
+                : `${n.apiName} ${n.operator} ${n.values.join(",")}`,
+              )
+              .join("; ")
+          : "any",
+        ],
+      });
+    }
   }
 
   function buildApplyPayloadFromState(
@@ -701,18 +1129,20 @@ export default function SideBar({
     nextDrafts: Map<string, ManualFilterDraft>,
     nextCustomViewId: string | null,
     zohoSelections?: ContractFieldFilterSelection[],
+    nextRelated: Map<string, RelatedModuleDraft> = relatedDrafts,
   ): ContractFilterApplyPayload {
     const hasBoxes = [...nextCheckboxes.values()].some((s) => s.size > 0);
     const hasManual = [...nextDrafts.entries()].some(([apiName, draft]) => {
       const field = fieldMeta.find((f) => f.apiName === apiName);
-      if (field?.dataType === "custom_view") return false;
+      if (field?.dataType === "custom_view" || field?.dataType === "related_module") return false;
       if (draft.operator === "between") {
         return Boolean(draft.value.trim() && draft.value2.trim());
       }
       return draft.value.trim().length > 0;
     });
+    const hasRelated = [...nextRelated.values()].some((draft) => relatedDraftIsActive(draft));
 
-    if (nextCustomViewId && !hasBoxes && !hasManual) {
+    if (nextCustomViewId && !hasBoxes && !hasManual && !hasRelated) {
       return {
         criteria: null,
         customViewId: nextCustomViewId,
@@ -733,7 +1163,7 @@ export default function SideBar({
     ];
 
     for (const field of fieldMeta) {
-      if (field.dataType === "custom_view") continue;
+      if (field.dataType === "custom_view" || field.dataType === "related_module") continue;
       if (field.hasOptions && field.options.length > 0) continue;
       const draft = nextDrafts.get(field.apiName);
       if (!draft?.value.trim()) continue;
@@ -773,6 +1203,8 @@ export default function SideBar({
         });
       }
     }
+
+    appendRelatedSelections(nextRelated, selections, displaySelections);
 
     return {
       criteria: buildSearchParamFromFieldFilters(zohoSelections ?? selections),
@@ -859,6 +1291,7 @@ export default function SideBar({
     if (applyLoading) return;
     setFieldSelections(new Map());
     setManualDrafts(new Map());
+    setRelatedDrafts(new Map());
     setSelectedCustomViewId(null);
     setActiveSavedFilterId(null);
     setSaveOpen(false);
@@ -870,6 +1303,7 @@ export default function SideBar({
   async function buildZohoSelectionsFromState(
     nextCheckboxes: Map<string, Set<string>>,
     nextDrafts: Map<string, ManualFilterDraft>,
+    nextRelated: Map<string, RelatedModuleDraft> = relatedDrafts,
   ): Promise<ContractFieldFilterSelection[]> {
     const baseSelections: ContractFieldFilterSelection[] = selectionsFromCheckboxState(
       nextCheckboxes,
@@ -881,7 +1315,7 @@ export default function SideBar({
       };
     });
     for (const field of fieldMeta) {
-      if (field.dataType === "custom_view") continue;
+      if (field.dataType === "custom_view" || field.dataType === "related_module") continue;
       if (field.hasOptions && field.options.length > 0) continue;
       const draft = nextDrafts.get(field.apiName);
       if (!draft?.value.trim()) continue;
@@ -908,8 +1342,11 @@ export default function SideBar({
       }
     }
 
+    appendRelatedSelections(nextRelated, baseSelections, []);
+
     const needsLookupContainsResolve = baseSelections.some((s) => {
       if (s.operator !== "contains") return false;
+      if (String(s.apiName).startsWith("$related.")) return false;
       const field = fieldMeta.find(
         (f) =>
           f.apiName === s.apiName ||
@@ -1002,11 +1439,19 @@ export default function SideBar({
     setSaveError(null);
     try {
       const zohoSelections = await buildZohoSelectionsFromState(fieldSelections, manualDrafts);
-      const conditions = zohoSelections.map((selection) => ({
-        apiName: selection.apiName,
-        operator: selection.operator || (selection.values.length > 1 ? "in" : "equals"),
-        values: selection.values,
-      }));
+      const conditions = zohoSelections
+        .filter((selection) => !String(selection.apiName).startsWith("$related."))
+        .map((selection) => ({
+          apiName: selection.apiName,
+          operator: selection.operator || (selection.values.length > 1 ? "in" : "equals"),
+          values: selection.values,
+        }));
+
+      if (conditions.length === 0) {
+        throw new Error(
+          "Related-module filters cannot be saved as Zoho custom views yet. Apply them from the sidebar, or save Contract field filters only.",
+        );
+      }
 
       const res = await fetch("/api/contracts/custom-views", {
         method: "POST",
@@ -1033,6 +1478,7 @@ export default function SideBar({
       setSaveError(null);
       setFieldSelections(new Map());
       setManualDrafts(new Map());
+      setRelatedDrafts(new Map());
       setSelectedCustomViewId(null);
 
       if (newId) {
@@ -1116,7 +1562,7 @@ export default function SideBar({
     );
   }
 
-  const hasFieldValueFilters = hasCheckboxFilters || hasManualFilters;
+  const hasFieldValueFilters = hasCheckboxFilters || hasManualFilters || hasRelatedFilters;
   /** Apply only for sidebar field filters — custom views apply immediately via the dropdown. */
   const canApplyFilters = hasFieldValueFilters;
   /** Save only when at least one field has a concrete value. */
@@ -1269,10 +1715,13 @@ export default function SideBar({
                   filterSearch={filterSearch}
                   fieldSelections={fieldSelections}
                   manualDrafts={manualDrafts}
+                  relatedDrafts={relatedDrafts}
                   zohoModule={zohoModule}
                   onToggleFieldValue={toggleFieldValue}
                   onManualChange={updateManualDraft}
+                  onRelatedChange={updateRelatedDraft}
                   getManualDraft={getManualDraft}
+                  getRelatedDraft={getRelatedDraft}
                 />
               ))
             }

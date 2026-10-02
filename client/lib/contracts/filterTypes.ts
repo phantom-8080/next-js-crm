@@ -73,13 +73,37 @@ const FILTERS_COMPARATOR: Record<string, string> = {
   greater_equal: "greater_equal",
   less_than: "less_than",
   less_equal: "less_equal",
+  is_empty: "equal",
+  is_not_empty: "not_equal",
 };
+
+function selectionAllowsEmptyValue(operator: string) {
+  const op = String(operator ?? "").toLowerCase();
+  return op === "is_empty" || op === "is_not_empty";
+}
+
+function isRelatedModuleEncodedSelection(selection: ContractFieldFilterSelection) {
+  const apiName = String(selection.apiName ?? "");
+  if (apiName.startsWith("$related.")) return true;
+  const raw = selection.values?.[0];
+  if (typeof raw !== "string") return false;
+  try {
+    const parsed = JSON.parse(raw) as { kind?: string };
+    return parsed?.kind === "related_module";
+  } catch {
+    return false;
+  }
+}
 
 export function buildCriteriaFromFieldFilters(
   selections: ContractFieldFilterSelection[],
 ): string | null {
   const clauses = selections
-    .filter((s) => s.values.length > 0)
+    .filter((s) => {
+      if (isRelatedModuleEncodedSelection(s)) return false;
+      if (selectionAllowsEmptyValue(s.operator)) return Boolean(s.apiName);
+      return s.values.length > 0;
+    })
     .map((s) => {
       const operator =
         s.operator ||
@@ -92,6 +116,8 @@ export function buildCriteriaFromFieldFilters(
 
 /**
  * Build Zoho Get Records `filters` JSON (supports `contains`, unlike Search API).
+ * Related-module clauses are encoded with `$related.*` api names and JSON values;
+ * `/api/contracts` strips and resolves them via child-module search.
  */
 export function buildFiltersObjectFromFieldFilters(
   selections: ContractFieldFilterSelection[],
@@ -99,18 +125,43 @@ export function buildFiltersObjectFromFieldFilters(
   const group: unknown[] = [];
 
   for (const selection of selections) {
-    const values = selection.values.map((v) => String(v).trim()).filter(Boolean);
-    if (!selection.apiName || values.length === 0) continue;
+    if (!selection.apiName) continue;
+
+    if (isRelatedModuleEncodedSelection(selection)) {
+      const values = selection.values.map((v) => String(v).trim()).filter(Boolean);
+      if (values.length === 0) continue;
+      group.push({
+        field: { api_name: selection.apiName },
+        comparator:
+          selection.operator === "not_equal" || selection.operator === "without" ?
+            "not_equal"
+          : "equal",
+        value: values[0],
+      });
+      continue;
+    }
 
     const operator =
       selection.operator ||
-      (values.length > 1 ? "in" : "equals");
-    const comparator = FILTERS_COMPARATOR[operator] ?? operator;
+      (selection.values.length > 1 ? "in" : "equals");
+    const allowEmpty = selectionAllowsEmptyValue(operator);
+    const values = selection.values.map((v) => String(v).trim()).filter(Boolean);
+    if (!allowEmpty && values.length === 0) continue;
 
-    const value =
-      operator === "in" || operator === "between" || comparator === "in" || comparator === "between" ?
-        values
-      : values[0];
+    const comparator = FILTERS_COMPARATOR[operator] ?? operator;
+    let value: unknown;
+    if (operator === "is_empty") value = "${EMPTY}";
+    else if (operator === "is_not_empty") value = "${EMPTY}";
+    else if (
+      operator === "in" ||
+      operator === "between" ||
+      comparator === "in" ||
+      comparator === "between"
+    ) {
+      value = values;
+    } else {
+      value = values[0];
+    }
 
     group.push({
       field: { api_name: selection.apiName },

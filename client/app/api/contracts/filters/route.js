@@ -1,6 +1,6 @@
 import { loadContractsFilterMeta } from "@/lib/contracts/filterMeta";
 import { getContractsOfflineFilterMeta } from "@/lib/contracts/static";
-import { getZohoModuleFieldsUrl } from "@/lib/zoho";
+import { getZohoModuleFieldsUrl, getZohoRelatedListsUrl } from "@/lib/zoho";
 
 export async function GET() {
   try {
@@ -11,6 +11,7 @@ export async function GET() {
       fields,
       source,
       zohoUrl: getZohoModuleFieldsUrl("Contracts"),
+      relatedModulesUrl: getZohoRelatedListsUrl("Contracts"),
       filterableCount: fields.length,
       sectionCount: sections.length,
       offlineDemo: source === "offline-demo",

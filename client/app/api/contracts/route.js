@@ -13,6 +13,11 @@ import {
   splitOurServicesFromFiltersJson,
 } from "@/lib/contracts/ourServicesFilter";
 import {
+  fetchContractIdsByRelatedModule,
+  intersectIdLists,
+  splitRelatedModulesFromFiltersJson,
+} from "@/lib/contracts/relatedModuleFilter";
+import {
   buildZohoModuleListUrls,
   fetchZohoJson,
   mapZohoRecord,
@@ -68,6 +73,23 @@ async function mapContractsWithScopeOfWork(rows, visibleApiNames) {
   return rows.map((row) => mapListContract(row, visibleApiNames, sowSummaries));
 }
 
+/** Zoho Get Records `sort_by` allow-list for Contracts (others → page-level sort). */
+const ZOHO_API_SORTABLE_FIELDS = new Set(["id", "Created_Time", "Modified_Time"]);
+
+/** Page-level sort when Zoho cannot sort the requested field. */
+function sortMappedContracts(contracts, sortBy, sortOrder) {
+  if (!sortBy || !Array.isArray(contracts)) return contracts;
+  const factor = sortOrder === "desc" ? -1 : 1;
+  return [...contracts].sort((a, b) => {
+    const left = String(a?.fields?.[sortBy] ?? "");
+    const right = String(b?.fields?.[sortBy] ?? "");
+    return (
+      factor *
+      left.localeCompare(right, undefined, { numeric: true, sensitivity: "base" })
+    );
+  });
+}
+
 function emptyListResponse({
   page,
   perPage,
@@ -104,15 +126,63 @@ export async function GET(request) {
   const rawCriteria = searchParams.get("criteria")?.trim() || null;
   const { criteria, filters } = parseListSearchParam(rawCriteria);
   const cvid = searchParams.get("cvid")?.trim() || null;
+  const sortBy = searchParams.get("sortBy")?.trim() || null;
+  const sortOrderRaw = searchParams.get("sortOrder")?.trim()?.toLowerCase() || null;
+  const sortOrder =
+    sortOrderRaw === "desc" || sortOrderRaw === "asc" ? sortOrderRaw : null;
+  const zohoSortBy =
+    sortBy && ZOHO_API_SORTABLE_FIELDS.has(sortBy) ? sortBy : null;
+  const pageSortBy = zohoSortBy ? null : sortBy;
 
-  const { serviceFilter, remainingFiltersJson } = splitOurServicesFromFiltersJson(filters);
+  const { serviceFilter, remainingFiltersJson: afterServices } =
+    splitOurServicesFromFiltersJson(filters);
+  const { relatedFilters, remainingFiltersJson } =
+    splitRelatedModulesFromFiltersJson(afterServices);
   const effectiveFilters = remainingFiltersJson;
-  const filtered = Boolean(criteria || filters || cvid || serviceFilter);
+  const filtered = Boolean(
+    criteria || filters || cvid || serviceFilter || relatedFilters.length > 0,
+  );
 
-  // OurServices lives on Our_Services_SubForm — resolve Parent_Id, then load Contracts.
-  if (serviceFilter && !cvid) {
+  // Child-module filters (OurServices / related modules) → Contract IDs → page by ids.
+  if ((serviceFilter || relatedFilters.length > 0) && !cvid) {
     try {
-      const allContractIds = await fetchContractIdsByOurServices(serviceFilter);
+      /** @type {string[][]} */
+      const idLists = [];
+
+      if (serviceFilter) {
+        idLists.push(await fetchContractIdsByOurServices(serviceFilter));
+      }
+
+      for (const relatedFilter of relatedFilters) {
+        try {
+          idLists.push(await fetchContractIdsByRelatedModule(relatedFilter));
+        } catch (relatedErr) {
+          const details = relatedErr?.details;
+          const code = String(details?.code ?? "");
+          const message = relatedErr instanceof Error ? relatedErr.message : "Related filter failed";
+          if (code === "NO_PERMISSION" || /permission/i.test(message)) {
+            const err = new Error(
+              `No Zoho permission to read related module “${relatedFilter.lookupModule}”. Grant the module READ scope and try again.`,
+            );
+            err.status = 403;
+            err.details = details;
+            throw err;
+          }
+          if (code === "NOT_SUPPORTED" || /not support/i.test(message)) {
+            const err = new Error(
+              `Zoho does not support searching related module “${relatedFilter.lookupModule}” via API. Try a different related module or field filter.`,
+            );
+            err.status = 400;
+            err.details = details;
+            throw err;
+          }
+          throw relatedErr;
+        }
+      }
+
+      const allContractIds =
+        idLists.length === 1 ? idLists[0] : intersectIdLists(idLists);
+
       if (allContractIds.length === 0) {
         return emptyListResponse({
           page,
@@ -124,8 +194,6 @@ export async function GET(request) {
         });
       }
 
-      // Optional extra Contracts filters: load candidates by id, then keep those that
-      // also match remaining filters (applied via a second Zoho list call + intersect).
       let matchingIds = allContractIds;
 
       if (effectiveFilters || criteria) {
@@ -192,7 +260,11 @@ export async function GET(request) {
         );
       }
 
-      const contracts = await mapContractsWithScopeOfWork(rows, visibleApiNames);
+      const contracts = sortMappedContracts(
+        await mapContractsWithScopeOfWork(rows, visibleApiNames),
+        pageSortBy ?? sortBy,
+        sortOrder,
+      );
       return Response.json({
         contracts,
         totalCount,
@@ -206,9 +278,9 @@ export async function GET(request) {
         filtered: true,
       });
     } catch (err) {
-      console.error("OurServices contract filter failed:", err);
+      console.error("Child-module contract filter failed:", err);
       const status = err.status ?? 502;
-      const message = err instanceof Error ? err.message : "Failed to filter by OurServices";
+      const message = err instanceof Error ? err.message : "Failed to filter by related module";
       if (status >= 400 && status < 600) {
         return Response.json(
           { error: message, status, details: err.details },
@@ -237,6 +309,8 @@ export async function GET(request) {
     criteria,
     filters: effectiveFilters ?? filters,
     cvid,
+    sortBy: zohoSortBy,
+    sortOrder: zohoSortBy ? sortOrder : null,
   });
 
   let listResult;
@@ -294,7 +368,11 @@ export async function GET(request) {
     );
   }
 
-  const contracts = await mapContractsWithScopeOfWork(body.data ?? [], visibleApiNames);
+  const contracts = sortMappedContracts(
+    await mapContractsWithScopeOfWork(body.data ?? [], visibleApiNames),
+    pageSortBy,
+    sortOrder,
+  );
 
   let totalCount = contracts.length;
   if (countResult.res.ok && typeof countResult.body.count === "number") {

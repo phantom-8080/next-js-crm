@@ -110,6 +110,7 @@ export function useResizableColumnWidths(
   );
 
   return {
+    getWidthPx,
     columnSizeStyle,
     tableMinWidthPx,
     beginColumnResize,

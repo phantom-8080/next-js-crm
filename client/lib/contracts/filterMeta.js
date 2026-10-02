@@ -5,6 +5,7 @@ import {
   fetchZohoJson,
   getZohoModuleFieldsUrl,
   getZohoModuleLayoutsUrl,
+  getZohoRelatedListsUrl,
   HIDDEN_API_NAMES,
   loadContractsFieldCatalog,
   ZOHO_CRM_BASE,
@@ -25,6 +26,11 @@ export const KNOWN_LOOKUP_FILTER_FIELDS = {
   Site: { kind: "lookup", module: "Accounts", searchFields: ["Account_Name", "Name"] },
   Site_Number: { kind: "lookup", module: "Accounts", searchFields: ["Account_Name", "Name"] },
   Company_Name: { kind: "lookup", module: "Accounts", searchFields: ["Account_Name", "Name"] },
+  Client_Company_Name: {
+    kind: "lookup",
+    module: "Accounts",
+    searchFields: ["Account_Name", "Name"],
+  },
   SOW_Name: { kind: "lookup", module: "Deals", searchFields: ["SOWID", "Deal_Name", "Name"] },
   SOW: { kind: "lookup", module: "Deals", searchFields: ["SOWID", "Deal_Name", "Name"] },
   OurServices: {
@@ -268,6 +274,19 @@ const OPERATORS_BY_DATA_TYPE = {
     { id: "not_equal", label: "is not" },
     { id: "in", label: "is any of" },
   ],
+  related_module: [
+    { id: "with", label: "with" },
+    { id: "without", label: "without" },
+  ],
+  /** Nested related-module field operators (Service Completions → Books ID, etc.). */
+  related_nested: [
+    { id: "is_not_empty", label: "is not empty" },
+    { id: "is_empty", label: "is empty" },
+    { id: "equals", label: "is" },
+    { id: "not_equal", label: "is not" },
+    { id: "contains", label: "contains" },
+    { id: "starts_with", label: "starts with" },
+  ],
 };
 
 const DEFAULT_OPERATORS = [
@@ -283,6 +302,44 @@ export function getOperatorsForDataType(dataType) {
   return OPERATORS_BY_DATA_TYPE[key] ?? DEFAULT_OPERATORS;
 }
 
+/** Operators for nested fields under Filter By Related Modules. */
+export function getRelatedNestedFieldOperators() {
+  return OPERATORS_BY_DATA_TYPE.related_nested ?? DEFAULT_OPERATORS;
+}
+
+/**
+ * Filterable fields on a related child module (for nested criteria UI).
+ * @param {string} module
+ * @returns {Promise<import("@/lib/contracts/filterTypes").ContractFilterFieldMeta[]>}
+ */
+export async function loadNestedFilterFieldsForModule(module) {
+  const moduleName = String(module ?? "").trim();
+  if (!moduleName) return [];
+
+  const { res, body } = await fetchZohoJson(getZohoModuleFieldsUrl(moduleName));
+  if (!res.ok || !Array.isArray(body.fields)) {
+    throw new Error(`Invalid fields response for ${moduleName}`);
+  }
+
+  /** @type {import("@/lib/contracts/filterTypes").ContractFilterFieldMeta[]} */
+  const fields = [];
+  for (const raw of body.fields) {
+    if (!raw || typeof raw !== "object") continue;
+    const dataType = String(raw.data_type ?? "").toLowerCase();
+    if (dataType === "subform" || dataType === "fileupload" || dataType === "imageupload") {
+      continue;
+    }
+    const mapped = mapFilterField(raw, "fields");
+    if (!mapped) continue;
+    // Nested related criteria use a fixed operator set (includes empty / not empty).
+    mapped.operators = getRelatedNestedFieldOperators();
+    fields.push(mapped);
+  }
+
+  fields.sort((a, b) => a.label.localeCompare(b.label));
+  return fields;
+}
+
 /**
  * Operators for a concrete filter field.
  * Lookups / user lookups filter by record id — never expose text `contains`.
@@ -293,6 +350,8 @@ export function getOperatorsForDataType(dataType) {
 export function getOperatorsForFilterField(apiName, dataType, lookupModule = "") {
   const operators = getOperatorsForDataType(dataType);
   const type = String(dataType ?? "").toLowerCase();
+  if (type === "related_module") return operators;
+
   const known = getKnownLookupFieldConfig(apiName);
   const hasLookupModule = Boolean(String(lookupModule ?? "").trim() || known?.module);
 
@@ -329,6 +388,73 @@ const RELATED_LOOKUP_TYPES = new Set([
   "userlookup",
   "multiselectlookup",
   "multiuserlookup",
+]);
+
+/**
+ * Related-list / child modules Zoho CRM filter UI does not show under
+ * "Filter By Related Modules".
+ */
+const EXCLUDED_RELATED_CHILD_MODULE_APIS = new Set([
+  "Activities",
+  "Tasks",
+  "Events",
+  "Calls",
+  "Attachments",
+  "Review_Processes",
+  "Review_Logs",
+  "Locking_Information__s",
+  "Email_Sentiment",
+  "WebformUsage",
+  "ContractsToProductsLink",
+  "Our_Services_SubForm",
+  "CustomModule1_Insights__s",
+  "Contract_Status_History",
+  "Contracts_X_People",
+  "Contracts_X_Users",
+  "CheckLists",
+]);
+
+/**
+ * Relationship api_names to skip (CRM noise / system related lists).
+ */
+const EXCLUDED_RELATED_LIST_API_NAMES = new Set([
+  "Activities",
+  "Activities_History",
+  "Activities_Chronological_View",
+  "Activities_Chronological_View_History",
+  "Zoho_Survey",
+  "Zoho_Support",
+  "CheckLists",
+  "Connected_Records__s",
+  "OurServices9",
+  "Users16",
+  "People24",
+  "WebformUsage",
+  "Review_Processes",
+  "Review_Logs",
+  "Email_Sentiment",
+  "Locking_Information__s",
+  "Attachments",
+  "Contract_Status_History",
+]);
+
+/** Plural labels when related_list.module does not include plural_label. */
+const RELATED_MODULE_PLURAL_LABELS = {
+  Bids: "Bids",
+  Contracts: "Contracts",
+  Deals: "SOW",
+  Emails: "Emails",
+  Notes: "Notes",
+  ServiceCompletions: "Service Completions",
+  Team_Commissions: "Team Commissions",
+  Vendor_Invoices: "Vendor Invoices",
+};
+
+/** Types never shown in Filter By Related Modules. */
+const EXCLUDED_RELATED_LIST_TYPES = new Set([
+  "grouped",
+  "combined_view",
+  "multiselectlookup",
 ]);
 
 /** @type {import("@/lib/contracts/filterTypes").ContractFilterSectionId[]} */
@@ -570,9 +696,210 @@ function applyContractsFilterLabelOverrides(field) {
   return field;
 }
 
-function isRelatedModuleField(field) {
-  const dataType = String(field.data_type ?? "").toLowerCase();
-  return RELATED_LOOKUP_TYPES.has(dataType);
+/**
+ * Zoho filter UI label: `plural (display)` when they differ; else `singular (display)`; else display.
+ * @param {Record<string, unknown>} relationship
+ * @param {{ pluralLabel?: string; singularLabel?: string }} [labelHints]
+ */
+function formatRelatedModuleFilterLabel(relationship, labelHints = {}) {
+  const display = String(relationship.display_label ?? relationship.name ?? "").trim();
+  const module =
+    relationship.module && typeof relationship.module === "object" ?
+      /** @type {Record<string, unknown>} */ (relationship.module)
+    : {};
+  const plural = String(
+    labelHints.pluralLabel ?? module.plural_label ?? "",
+  ).trim();
+  const singular = String(
+    labelHints.singularLabel ?? module.singular_label ?? "",
+  ).trim();
+
+  if (plural && display && plural !== display) {
+    return `${plural} (${display})`;
+  }
+  if (singular && display && singular !== display) {
+    return `${singular} (${display})`;
+  }
+  return display || plural || singular || String(relationship.api_name ?? "");
+}
+
+/**
+ * @param {Record<string, unknown>} relatedList
+ */
+function shouldIncludeRelatedListForFilters(relatedList) {
+  const type = String(relatedList.type ?? "").toLowerCase();
+  if (EXCLUDED_RELATED_LIST_TYPES.has(type)) return false;
+
+  const apiName = String(relatedList.api_name ?? "").trim();
+  if (!apiName || EXCLUDED_RELATED_LIST_API_NAMES.has(apiName)) return false;
+
+  const module =
+    relatedList.module && typeof relatedList.module === "object" ?
+      /** @type {Record<string, unknown>} */ (relatedList.module)
+    : null;
+  if (!module) return false;
+
+  const moduleApi = String(module.api_name ?? "").trim();
+  if (!moduleApi || EXCLUDED_RELATED_CHILD_MODULE_APIS.has(moduleApi)) {
+    return false;
+  }
+
+  // Do not require relatedList.visible — Client Contract is visible:false in CRM
+  // but still appears under Filter By Related Modules.
+  return true;
+}
+
+/**
+ * @param {Record<string, unknown>} relatedList
+ * @returns {import("@/lib/contracts/filterTypes").ContractFilterFieldMeta | null}
+ */
+function mapRelatedListFilterField(relatedList) {
+  const apiName = String(relatedList.api_name ?? "").trim();
+  if (!apiName) return null;
+
+  const module =
+    relatedList.module && typeof relatedList.module === "object" ?
+      /** @type {Record<string, unknown>} */ (relatedList.module)
+    : {};
+  const lookupModule = String(module.api_name ?? "").trim() || undefined;
+  const pluralLabel =
+    String(module.plural_label ?? "").trim() ||
+    (lookupModule ? RELATED_MODULE_PLURAL_LABELS[lookupModule] : undefined);
+  const singularLabel = String(module.singular_label ?? "").trim() || undefined;
+
+  const label = formatRelatedModuleFilterLabel(relatedList, {
+    pluralLabel,
+    singularLabel: singularLabel || (pluralLabel === "SOW" ? "SOW" : undefined),
+  });
+
+  return {
+    apiName,
+    label,
+    dataType: "related_module",
+    operators: getOperatorsForDataType("related_module"),
+    options: [],
+    hasOptions: false,
+    section: /** @type {const} */ ("related_modules"),
+    ...(lookupModule ? { lookupModule } : {}),
+  };
+}
+
+/**
+ * @param {unknown[]} rows
+ * @returns {import("@/lib/contracts/filterTypes").ContractFilterFieldMeta[]}
+ */
+function mapModuleRelatedListsToFilterFields(rows) {
+  /** @type {import("@/lib/contracts/filterTypes").ContractFilterFieldMeta[]} */
+  const relatedFields = [];
+  /** @type {Set<string>} */
+  const seen = new Set();
+
+  for (const raw of rows) {
+    if (!raw || typeof raw !== "object") continue;
+    const rel = /** @type {Record<string, unknown>} */ (raw);
+    if (!shouldIncludeRelatedListForFilters(rel)) continue;
+
+    const apiName = String(rel.api_name ?? "").trim();
+    if (seen.has(apiName)) continue;
+
+    const mapped = mapRelatedListFilterField(rel);
+    if (!mapped) continue;
+    seen.add(apiName);
+    relatedFields.push(mapped);
+  }
+
+  relatedFields.sort((a, b) => a.label.localeCompare(b.label));
+  return relatedFields;
+}
+
+/**
+ * Load related_lists for the default layout plus every module layout, then merge.
+ * Layout-specific lists (e.g. Client Contract on Vendor layout) only appear with layout_id.
+ * @param {string} module
+ * @returns {Promise<Record<string, unknown>[]>}
+ */
+async function fetchMergedRelatedLists(module) {
+  /** @type {Map<string, Record<string, unknown>>} */
+  const byApiName = new Map();
+
+  /**
+   * @param {unknown[]} rows
+   */
+  function mergeRows(rows) {
+    for (const raw of rows) {
+      if (!raw || typeof raw !== "object") continue;
+      const rel = /** @type {Record<string, unknown>} */ (raw);
+      const apiName = String(rel.api_name ?? "").trim();
+      if (!apiName || byApiName.has(apiName)) continue;
+      byApiName.set(apiName, rel);
+    }
+  }
+
+  const defaultResult = await fetchZohoJson(getZohoRelatedListsUrl(module));
+  if (defaultResult.res.ok && Array.isArray(defaultResult.body.related_lists)) {
+    mergeRows(defaultResult.body.related_lists);
+  } else if (!defaultResult.res.ok) {
+    const code = String(defaultResult.body?.code ?? "");
+    const message = String(
+      defaultResult.body?.message ?? defaultResult.res.statusText ?? "",
+    );
+    throw new Error(
+      `Invalid related_lists response` +
+        (code ? ` (${code}: ${message})` : ` (HTTP ${defaultResult.res.status})`),
+    );
+  }
+
+  const layoutsResult = await fetchZohoJson(getZohoModuleLayoutsUrl(module)).catch(
+    () => null,
+  );
+  const layouts =
+    layoutsResult?.res.ok && Array.isArray(layoutsResult.body.layouts) ?
+      layoutsResult.body.layouts
+    : [];
+
+  const layoutIds = [
+    ...new Set(
+      layouts
+        .map((row) => {
+          if (!row || typeof row !== "object") return "";
+          const layout = /** @type {Record<string, unknown>} */ (row);
+          const status = String(layout.status ?? "").toLowerCase();
+          if (status === "deleted" || status === "-1") return "";
+          return layout.id != null ? String(layout.id).trim() : "";
+        })
+        .filter(Boolean),
+    ),
+  ];
+
+  await Promise.all(
+    layoutIds.map(async (layoutId) => {
+      try {
+        const { res, body } = await fetchZohoJson(
+          getZohoRelatedListsUrl(module, { layoutId }),
+        );
+        if (res.ok && Array.isArray(body.related_lists)) {
+          mergeRows(body.related_lists);
+        }
+      } catch (err) {
+        console.error(
+          `Zoho related_lists for layout ${layoutId} failed (${module}):`,
+          err,
+        );
+      }
+    }),
+  );
+
+  return [...byApiName.values()];
+}
+
+/**
+ * Load "Filter By Related Modules" from Zoho related_lists (all layouts merged).
+ * @param {string} module
+ * @returns {Promise<import("@/lib/contracts/filterTypes").ContractFilterFieldMeta[]>}
+ */
+async function loadRelatedModuleFilters(module) {
+  const relatedLists = await fetchMergedRelatedLists(module);
+  return mapModuleRelatedListsToFilterFields(relatedLists);
 }
 
 /**
@@ -656,11 +983,16 @@ async function buildContractsFilterMetaFromCatalog() {
   });
   applyLayoutOptionsToFields(moduleFields, layoutOptions);
 
+  const relatedFields = await loadRelatedModuleFilters("Contracts").catch((err) => {
+    console.error("Zoho related modules for filters failed (catalog fallback):", err);
+    return /** @type {import("@/lib/contracts/filterTypes").ContractFilterFieldMeta[]} */ ([]);
+  });
+
   const { sections, fields } = assembleFilterMetaSections(
     systemFields,
     moduleFields,
     [],
-    [],
+    relatedFields,
   );
 
   if (fields.length === 0) {
@@ -715,43 +1047,32 @@ export async function loadModuleFilterMeta(module) {
 
     /** @type {import("@/lib/contracts/filterTypes").ContractFilterFieldMeta[]} */
     const moduleFields = [];
-    /** @type {import("@/lib/contracts/filterTypes").ContractFilterFieldMeta[]} */
-    const relatedFields = [];
 
     for (const raw of body.fields) {
-      if (isRelatedModuleField(raw)) {
-        if (
-          module === "Contracts" &&
-          isExcludedContractCatalogField({
-            apiName: String(raw.api_name ?? ""),
-            label: String(raw.field_label ?? raw.api_name ?? ""),
-            dataType: String(raw.data_type ?? "text"),
-          })
-        ) {
-          continue;
-        }
-        const mapped = mapFilterField(raw, "related_modules");
-        if (mapped) relatedFields.push(applyContractsFilterLabelOverrides(mapped));
-      } else if (String(raw.data_type ?? "").toLowerCase() === "subform") {
+      if (String(raw.data_type ?? "").toLowerCase() === "subform") {
         continue;
-      } else {
-        if (
-          module === "Contracts" &&
-          isExcludedContractCatalogField({
-            apiName: String(raw.api_name ?? ""),
-            label: String(raw.field_label ?? raw.api_name ?? ""),
-            dataType: String(raw.data_type ?? "text"),
-          })
-        ) {
-          continue;
-        }
-        const mapped = mapFilterField(raw, "fields");
-        if (mapped) moduleFields.push(applyContractsFilterLabelOverrides(mapped));
       }
+      if (
+        module === "Contracts" &&
+        isExcludedContractCatalogField({
+          apiName: String(raw.api_name ?? ""),
+          label: String(raw.field_label ?? raw.api_name ?? ""),
+          dataType: String(raw.data_type ?? "text"),
+        })
+      ) {
+        continue;
+      }
+      // Lookup / user fields belong under Filter By Fields (not Related Modules).
+      const mapped = mapFilterField(raw, "fields");
+      if (mapped) moduleFields.push(applyContractsFilterLabelOverrides(mapped));
     }
 
     moduleFields.sort((a, b) => a.label.localeCompare(b.label));
-    relatedFields.sort((a, b) => a.label.localeCompare(b.label));
+
+    const relatedFields = await loadRelatedModuleFilters(module).catch((err) => {
+      console.error(`Zoho related modules for filters failed (${module}):`, err);
+      return /** @type {import("@/lib/contracts/filterTypes").ContractFilterFieldMeta[]} */ ([]);
+    });
 
     /** @type {import("@/lib/contracts/filterTypes").ContractFilterFieldMeta[]} */
     const subformFields = [];

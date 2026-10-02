@@ -848,6 +848,25 @@ export function sanitizeCrmRichHtml(html: string): string {
     .replace(/\sstyle='[^']*'/gi, "");
 }
 
+/**
+ * List/table display: collapse Zoho long dash underlines so labels and values
+ * stay on readable lines instead of wrapping mid-separator.
+ */
+export function sanitizeCrmRichHtmlForList(html: string): string {
+  return sanitizeCrmRichHtml(html)
+    .replace(/[-–—_]{3,}/g, " — ")
+    .replace(/(?:&nbsp;|\u00a0){2,}/gi, " ")
+    .replace(/[ \t]{2,}/g, " ");
+}
+
+/** Plain long text in list cells — same dash cleanup as rich HTML. */
+export function cleanLongTextForList(value: string): string {
+  return value
+    .replace(/[-–—_]{3,}/g, " — ")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
 export function shouldRenderAsRichHtml(apiName: string, value: string, dataType?: string): boolean {
   if (!value?.trim()) return false;
   if (looksLikeHtml(value)) return true;

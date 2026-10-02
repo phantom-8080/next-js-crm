@@ -24,7 +24,7 @@ export function ResizableTableHeadCell({
       className={cn("relative h-11 max-h-11 align-middle select-none", className)}
       style={style}
     >
-      <span className="flex h-full min-w-0 items-center truncate pr-2">{label}</span>
+      <span className="flex h-full min-w-0 items-center overflow-visible pr-2">{label}</span>
       {showDivider ?
         <>
           <span aria-hidden className="crm-col-header-divider" />
@@ -34,21 +34,21 @@ export function ResizableTableHeadCell({
             aria-label="Resize column"
             title="Drag to resize column"
             className="crm-col-resize-handle absolute -right-1 top-0 z-10 h-full w-3 cursor-col-resize touch-none select-none outline-none"
-          onPointerDown={(e) => {
-            if (e.button !== 0) return;
-            e.preventDefault();
-            e.stopPropagation();
-            const target = e.currentTarget as HTMLElement;
-            target.setPointerCapture(e.pointerId);
-            onResizeStart(e.clientX);
-          }}
-          onPointerUp={(e) => {
-            try {
-              (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
-            } catch {
-              // already released
-            }
-          }}
+            onPointerDown={(e) => {
+              if (e.button !== 0) return;
+              e.preventDefault();
+              e.stopPropagation();
+              const target = e.currentTarget as HTMLElement;
+              target.setPointerCapture(e.pointerId);
+              onResizeStart(e.clientX);
+            }}
+            onPointerUp={(e) => {
+              try {
+                (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+              } catch {
+                // already released
+              }
+            }}
           />
         </>
       : null}

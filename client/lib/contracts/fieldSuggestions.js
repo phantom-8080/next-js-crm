@@ -17,6 +17,13 @@ export const ALLOWED_SUGGESTION_MODULES = new Set([
   "Contracts",
   "Vendors",
   "Deals",
+  "Accounts",
+  "ServiceCompletions",
+  "Notes",
+  "Bids",
+  "Emails",
+  "Vendor_Invoices",
+  "Team_Commissions",
 ]);
 
 const MAX_SUGGESTIONS = 100;
@@ -522,17 +529,18 @@ function lookupConfigForField(fieldApiName, lookupModule = "") {
   const known = getKnownLookupFieldConfig(fieldApiName);
   if (lookupModule) {
     // Products CRM module uses Product_Name (legacy widget: Product_Name:starts_with:…).
+    // Accounts CRM module uses Account_Name (Zoho filter UI: Account_Name:starts_with:…).
     const displayFields =
-      lookupModule === "Products"
-        ? ["Product_Name", "Name"]
-        : (known?.searchFields ?? [
-            "Name",
-            "Vendor_Name",
-            "SOWID",
-            "Deal_Name",
-            "Account_Name",
-            "Product_Name",
-          ]);
+      lookupModule === "Products" ? ["Product_Name", "Name"]
+      : lookupModule === "Accounts" ? ["Account_Name", "Name"]
+      : (known?.searchFields ?? [
+          "Name",
+          "Vendor_Name",
+          "SOWID",
+          "Deal_Name",
+          "Account_Name",
+          "Product_Name",
+        ]);
     return {
       module: lookupModule,
       fields: ["id", ...displayFields],

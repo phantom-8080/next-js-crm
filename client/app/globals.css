@@ -237,6 +237,35 @@
     0 1px 0 var(--crm-border);
 }
 
+.contracts-table-scroll th.crm-col-select-sticky,
+.contracts-table-scroll td.crm-col-select-sticky {
+  position: sticky;
+  left: 0;
+  z-index: 5;
+  background: var(--crm-panel) !important;
+}
+
+.contracts-table-scroll thead th.crm-col-select-sticky {
+  z-index: 6;
+}
+
+.contracts-table-scroll th.crm-col-pinned,
+.contracts-table-scroll td.crm-col-pinned {
+  position: sticky;
+  z-index: 4;
+  background: var(--crm-panel) !important;
+  box-shadow: 1px 0 0 var(--crm-border);
+}
+
+.contracts-table-scroll thead th.crm-col-pinned {
+  z-index: 5;
+}
+
+.contracts-table-scroll tr[data-state="selected"] td.crm-col-select-sticky,
+.contracts-table-scroll tr[data-state="selected"] td.crm-col-pinned {
+  background: color-mix(in srgb, var(--crm-panel) 88%, #3b82f6 12%) !important;
+}
+
 .dark .contracts-table-scroll thead th {
   background: var(--crm-table-head) !important;
   box-shadow:
@@ -244,8 +273,65 @@
     0 1px 0 var(--crm-border);
 }
 
+.dark .contracts-table-scroll thead th.crm-col-pinned,
+.dark .contracts-table-scroll thead th.crm-col-select-sticky {
+  background: var(--crm-table-head) !important;
+}
+
 .contracts-table-scroll [data-slot=table-cell] {
   border-right-width: 0;
+  vertical-align: top;
+}
+
+/* Any tall cell value: wrap to column width + vertical scrollbar when needed */
+.crm-cell-scroll {
+  box-sizing: border-box;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  max-height: 4.75rem;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overflow-wrap: break-word;
+  word-break: normal;
+  white-space: normal;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--crm-scrollbar-thumb) var(--crm-scrollbar-track);
+}
+
+.crm-cell-scroll--tall {
+  max-height: 7.5rem;
+}
+
+.crm-cell-scroll::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+.crm-cell-scroll::-webkit-scrollbar-track {
+  background: var(--crm-scrollbar-track);
+  border-radius: 9999px;
+}
+
+.crm-cell-scroll::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  background: var(--crm-scrollbar-thumb);
+}
+
+.crm-cell-scroll::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--crm-scrollbar-thumb) 80%, var(--crm-text) 20%);
+}
+
+@media (max-width: 767px) {
+  .crm-cell-scroll {
+    max-height: 6.5rem;
+  }
+
+  .crm-cell-scroll--tall {
+    max-height: 10rem;
+  }
 }
 
 .crm-col-header-divider {
@@ -437,37 +523,37 @@ body.crm-col-resizing {
   color: var(--crm-text);
 }
 
-/* Compact rich text for contracts list table / cards */
+/* Compact rich text for contracts list — height/scroll handled by .crm-cell-scroll */
 .crm-rich-text--list {
   max-width: none;
-  max-height: 4.75rem;
+  max-height: none;
   margin-top: 0;
-  padding: 0.1rem 0 0.1rem 0.65rem;
-  overflow: hidden;
+  padding: 0.1rem 0.35rem 0.1rem 0.65rem;
+  overflow: visible;
   font-size: 0.8125rem;
   line-height: 1.45;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
+  display: block;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 
 .crm-rich-text--list p + p {
-  margin-top: 0.2rem;
+  margin-top: 0.35rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid color-mix(in srgb, var(--crm-border) 85%, transparent);
 }
 
 .crm-plain-notes--list {
   max-width: none;
-  max-height: 4.75rem;
+  max-height: none;
   margin-top: 0;
-  padding: 0.1rem 0 0.1rem 0.65rem;
-  overflow: hidden;
+  padding: 0.1rem 0.35rem 0.1rem 0.65rem;
+  overflow: visible;
   font-size: 0.8125rem;
   line-height: 1.45;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  line-clamp: 3;
+  display: block;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 
 /* Zoho Custom Views toolbar dropdown */
