@@ -283,31 +283,47 @@
   vertical-align: top;
 }
 
-/* Any tall cell value: wrap to column width + vertical scrollbar when needed */
+/*
+ * Fixed uniform cell height — every column matches; overflow scrolls inside.
+ * (max-height alone lets short cells shrink; height keeps all cells equal.)
+ */
+.contracts-table-scroll tbody td:not(.crm-col-select-sticky) {
+  height: 1px;
+  vertical-align: middle;
+}
+
+.contracts-table-scroll tbody td > .crm-cell-scroll {
+  height: 2.5rem;
+  max-height: 2.5rem;
+}
+
 .crm-cell-scroll {
   box-sizing: border-box;
+  display: block;
   min-width: 0;
+  min-height: 0;
   width: 100%;
   max-width: 100%;
-  max-height: 4.75rem;
+  height: 2.5rem;
+  max-height: 2.5rem;
   overflow-x: hidden;
   overflow-y: auto;
   overflow-wrap: break-word;
   word-break: normal;
   white-space: normal;
   overscroll-behavior: contain;
-  scrollbar-gutter: stable;
   scrollbar-width: thin;
   scrollbar-color: var(--crm-scrollbar-thumb) var(--crm-scrollbar-track);
 }
 
 .crm-cell-scroll--tall {
-  max-height: 7.5rem;
+  height: 2.5rem;
+  max-height: 2.5rem;
 }
 
 .crm-cell-scroll::-webkit-scrollbar {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
 }
 
 .crm-cell-scroll::-webkit-scrollbar-track {
@@ -325,12 +341,11 @@
 }
 
 @media (max-width: 767px) {
-  .crm-cell-scroll {
-    max-height: 6.5rem;
-  }
-
-  .crm-cell-scroll--tall {
-    max-height: 10rem;
+  .crm-cell-scroll,
+  .crm-cell-scroll--tall,
+  .contracts-table-scroll tbody td > .crm-cell-scroll {
+    height: 2.5rem;
+    max-height: 2.5rem;
   }
 }
 
@@ -529,7 +544,7 @@ body.crm-col-resizing {
   max-height: none;
   margin-top: 0;
   padding: 0.1rem 0.35rem 0.1rem 0.65rem;
-  overflow: visible;
+  overflow: hidden;
   font-size: 0.8125rem;
   line-height: 1.45;
   display: block;
@@ -548,7 +563,7 @@ body.crm-col-resizing {
   max-height: none;
   margin-top: 0;
   padding: 0.1rem 0.35rem 0.1rem 0.65rem;
-  overflow: visible;
+  overflow: hidden;
   font-size: 0.8125rem;
   line-height: 1.45;
   display: block;

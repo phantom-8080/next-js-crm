@@ -38,6 +38,8 @@ type RelatedNestedDraft = {
   apiName: string;
   operator: string;
   value: string;
+  /** Second bound for `between` (dates / numbers). */
+  value2?: string;
   /** Display name when `value` is a Zoho lookup/user id. */
   displayLabel?: string;
 };
@@ -61,6 +63,9 @@ function relatedDraftIsActive(draft: RelatedModuleDraft | undefined) {
 function nestedDraftIsValid(nested: RelatedNestedDraft) {
   if (!nested.apiName.trim()) return false;
   if (nested.operator === "is_empty" || nested.operator === "is_not_empty") return true;
+  if (nested.operator === "between") {
+    return nested.value.trim().length > 0 && String(nested.value2 ?? "").trim().length > 0;
+  }
   return nested.value.trim().length > 0;
 }
 
@@ -138,7 +143,13 @@ function RelatedModuleFilterSection({
       enabled: true,
       nested: [
         ...prev.nested,
-        { apiName: "", operator: "is_not_empty", value: "", displayLabel: undefined },
+        {
+          apiName: "",
+          operator: "is_not_empty",
+          value: "",
+          value2: "",
+          displayLabel: undefined,
+        },
       ],
     }));
   }
@@ -227,6 +238,12 @@ function RelatedModuleFilterSection({
                 const ops = selectedChild?.operators?.length ? selectedChild.operators : nestedOps;
                 const needsValue =
                   row.operator !== "is_empty" && row.operator !== "is_not_empty";
+                const isDateChild =
+                  Boolean(selectedChild) && isDateType(selectedChild!.dataType);
+                const useSuggestions =
+                  Boolean(selectedChild) &&
+                  !isDateChild &&
+                  fieldUsesSuggestionInput(selectedChild!);
                 return (
                   <div
                     key={`nested-${index}`}
@@ -247,13 +264,15 @@ function RelatedModuleFilterSection({
                       onChange={(e) => {
                         const apiName = e.target.value;
                         const child = childFields.find((f) => f.apiName === apiName);
-                        const lookupLike =
-                          Boolean(child) &&
-                          (fieldUsesIdSuggestions(child!) || Boolean(child?.lookupModule));
+                        const suggestionLike =
+                          Boolean(child) && fieldUsesSuggestionInput(child!);
+                        const dateLike = Boolean(child) && isDateType(child!.dataType);
                         updateNested(index, {
                           apiName,
-                          operator: lookupLike ? "equals" : "is_not_empty",
+                          operator:
+                            suggestionLike || dateLike ? "equals" : "is_not_empty",
                           value: "",
+                          value2: "",
                           displayLabel: undefined,
                         });
                       }}
@@ -266,64 +285,74 @@ function RelatedModuleFilterSection({
                         </option>
                       ))}
                     </select>
-                    <select
-                      value={row.operator}
-                      onChange={(e) =>
-                        updateNested(index, {
-                          operator: e.target.value,
-                          ...(e.target.value === "is_empty" || e.target.value === "is_not_empty" ?
-                            { value: "", displayLabel: undefined }
-                          : {}),
-                        })
-                      }
-                      className="h-9 w-full rounded-lg border border-crm-border bg-crm-panel px-2 text-sm text-crm-text outline-none focus:border-blue-500"
-                    >
-                      {ops.map((op) => (
-                        <option key={op.id} value={op.id}>
-                          {op.label}
-                        </option>
-                      ))}
-                    </select>
-                    {needsValue && selectedChild ?
-                      fieldUsesIdSuggestions(selectedChild) || Boolean(selectedChild.lookupModule) ?
-                        <FilterValueSuggestionInput
-                          field={selectedChild}
-                          zohoModule={zohoModule}
-                          value={row.value}
-                          displayLabel={row.displayLabel}
-                          placeholder={`Search ${selectedChild.label.toLowerCase()}…`}
-                          onChange={(patch) =>
-                            updateNested(index, {
-                              value: patch.value,
-                              displayLabel: patch.displayLabel,
-                            })
-                          }
-                        />
-                      : <input
-                          type="text"
-                          value={row.value}
-                          onChange={(e) =>
-                            updateNested(index, {
-                              value: e.target.value,
-                              displayLabel: undefined,
-                            })
-                          }
-                          placeholder="Value…"
+                    <label className="block">
+                      <span className="mb-1 block text-xs text-crm-text-muted">Condition</span>
+                      <select
+                        value={row.operator}
+                        onChange={(e) => {
+                          const nextOp = e.target.value;
+                          updateNested(index, {
+                            operator: nextOp,
+                            ...(nextOp === "is_empty" || nextOp === "is_not_empty" ?
+                              { value: "", value2: "", displayLabel: undefined }
+                            : nextOp !== "between" ?
+                              { value2: "" }
+                            : {}),
+                          });
+                        }}
+                        className="h-9 w-full rounded-lg border border-crm-border bg-crm-panel px-2 text-sm text-crm-text outline-none focus:border-blue-500"
+                      >
+                        {ops.map((op) => (
+                          <option key={op.id} value={op.id}>
+                            {op.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {needsValue ?
+                      <label className="block">
+                        <span className="mb-1 block text-xs text-crm-text-muted">Value</span>
+                        {useSuggestions && selectedChild ?
+                          <FilterValueSuggestionInput
+                            field={selectedChild}
+                            /** Host module for suggestions = related child module when available. */
+                            zohoModule={field.lookupModule || zohoModule}
+                            value={row.value}
+                            displayLabel={row.displayLabel}
+                            placeholder={`Search ${selectedChild.label.toLowerCase()}…`}
+                            onChange={(patch) =>
+                              updateNested(index, {
+                                value: patch.value,
+                                displayLabel: patch.displayLabel,
+                              })
+                            }
+                          />
+                        : <input
+                            type={isDateChild ? "date" : "text"}
+                            value={row.value}
+                            onChange={(e) =>
+                              updateNested(index, {
+                                value: e.target.value,
+                                displayLabel: undefined,
+                              })
+                            }
+                            placeholder={isDateChild ? undefined : "Value…"}
+                            className="h-9 w-full rounded-lg border border-crm-border bg-crm-panel px-3 text-sm text-crm-text outline-none focus:border-blue-500"
+                          />
+                        }
+                      </label>
+                    : null}
+                    {needsValue && row.operator === "between" ?
+                      <label className="block">
+                        <span className="mb-1 block text-xs text-crm-text-muted">To</span>
+                        <input
+                          type={isDateChild ? "date" : "text"}
+                          value={row.value2 ?? ""}
+                          onChange={(e) => updateNested(index, { value2: e.target.value })}
+                          placeholder={isDateChild ? undefined : "To…"}
                           className="h-9 w-full rounded-lg border border-crm-border bg-crm-panel px-3 text-sm text-crm-text outline-none focus:border-blue-500"
                         />
-                    : needsValue ?
-                      <input
-                        type="text"
-                        value={row.value}
-                        onChange={(e) =>
-                          updateNested(index, {
-                            value: e.target.value,
-                            displayLabel: undefined,
-                          })
-                        }
-                        placeholder="Value…"
-                        className="h-9 w-full rounded-lg border border-crm-border bg-crm-panel px-3 text-sm text-crm-text outline-none focus:border-blue-500"
-                      />
+                      </label>
                     : null}
                   </div>
                 );
@@ -462,16 +491,58 @@ function isDateType(dataType: string) {
   return dataType === "date" || dataType === "datetime";
 }
 
+/** Lookup / user / layout fields — store Zoho record ids on select. */
 function fieldUsesIdSuggestions(field: ContractFilterFieldMeta) {
   if (field.dataType === "related_module") return false;
   const known = getKnownLookupFieldConfig(field.apiName);
+  const type = String(field.dataType ?? "").toLowerCase();
   return (
     isLookupLikeDataType(field.dataType) ||
     isUserLikeDataType(field.dataType) ||
+    type === "layout" ||
     known?.kind === "user" ||
     known?.kind === "lookup" ||
+    known?.kind === "layout" ||
     Boolean(field.lookupModule)
   );
+}
+
+/** Picklists that use searchable suggestion input (click → API), not checkbox lists. */
+const PICKLIST_SUGGESTION_FIELDS = new Set([
+  "Category",
+  "Status", // Work Status (Service Completions)
+  "Scheduling_Status", // Schedule / Scheduling Status
+  "CTI_Round",
+]);
+
+function fieldApiLeaf(apiName: string) {
+  const key = String(apiName ?? "").trim();
+  if (!key) return "";
+  return key.includes(".") ? key.slice(key.lastIndexOf(".") + 1) : key;
+}
+
+function fieldUsesPicklistSuggestions(field: ContractFilterFieldMeta) {
+  return PICKLIST_SUGGESTION_FIELDS.has(fieldApiLeaf(field.apiName));
+}
+
+/** Fields that show the suggestion dropdown + fetch-on-focus. */
+function fieldUsesSuggestionInput(field: ContractFilterFieldMeta) {
+  return fieldUsesIdSuggestions(field) || fieldUsesPicklistSuggestions(field);
+}
+
+function filterLocalPicklistOptions(
+  options: ContractFilterOption[],
+  query: string,
+): ContractFilterOption[] {
+  const q = query.trim().toLowerCase();
+  const rows = !q ?
+      options
+    : options.filter(
+        (opt) =>
+          opt.label.toLowerCase().includes(q) ||
+          String(opt.value).toLowerCase().includes(q),
+      );
+  return rows.slice(0, 100);
 }
 
 const MIN_SUGGESTION_CHARS = 2;
@@ -498,6 +569,9 @@ function FilterValueSuggestionInput({
   const [loading, setLoading] = useState(false);
   const [suggestions, setSuggestions] = useState<ContractFilterOption[]>([]);
   const [inputText, setInputText] = useState(() => displayLabel || value);
+  /** CRM-style: load options on focus (empty query allowed). */
+  const preloadOnFocus = fieldUsesSuggestionInput(field);
+  const picklistSuggest = fieldUsesPicklistSuggestions(field);
 
   useEffect(() => {
     setInputText(displayLabel || value);
@@ -527,6 +601,12 @@ function FilterValueSuggestionInput({
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
+
+    // Picklists: show metadata options immediately, then refresh from API.
+    if (picklistSuggest && field.options?.length) {
+      setSuggestions(filterLocalPicklistOptions(field.options, q));
+    }
+
     setLoading(true);
 
     const params = new URLSearchParams({
@@ -543,11 +623,24 @@ function FilterValueSuggestionInput({
           suggestions?: ContractFilterOption[];
         };
         if (controller.signal.aborted) return;
-        setSuggestions(Array.isArray(data.suggestions) ? data.suggestions : []);
+        const fromApi = Array.isArray(data.suggestions) ? data.suggestions : [];
+        if (picklistSuggest && field.options?.length) {
+          const local = filterLocalPicklistOptions(field.options, q);
+          if (local.length > 0) {
+            // Prefer full picklist metadata; keep any API-only values at the end.
+            const seen = new Set(local.map((o) => String(o.value)));
+            const extras = fromApi.filter((o) => !seen.has(String(o.value)));
+            setSuggestions([...local, ...extras].slice(0, 100));
+            return;
+          }
+        }
+        setSuggestions(fromApi);
       })
       .catch((err) => {
         if (err instanceof DOMException && err.name === "AbortError") return;
-        if (!controller.signal.aborted) setSuggestions([]);
+        if (!controller.signal.aborted && !(picklistSuggest && field.options?.length)) {
+          setSuggestions([]);
+        }
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
@@ -556,6 +649,11 @@ function FilterValueSuggestionInput({
 
   function scheduleFetch(q: string) {
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    // Lookup/user/layout: search as you type (incl. clearing back to full list).
+    if (preloadOnFocus) {
+      debounceRef.current = setTimeout(() => fetchSuggestions(q), 250);
+      return;
+    }
     if (q.length < MIN_SUGGESTION_CHARS) {
       abortRef.current?.abort();
       setSuggestions([]);
@@ -568,6 +666,11 @@ function FilterValueSuggestionInput({
   function handleFocus() {
     setOpen(true);
     const q = inputText.trim();
+    if (preloadOnFocus) {
+      // CRM: clicking the value input immediately loads record suggestions.
+      fetchSuggestions(q);
+      return;
+    }
     if (q.length >= MIN_SUGGESTION_CHARS) {
       fetchSuggestions(q);
     } else {
@@ -601,7 +704,8 @@ function FilterValueSuggestionInput({
   }
 
   const trimmedInput = inputText.trim();
-  const needsMoreChars = trimmedInput.length > 0 && trimmedInput.length < MIN_SUGGESTION_CHARS;
+  const needsMoreChars =
+    !preloadOnFocus && trimmedInput.length > 0 && trimmedInput.length < MIN_SUGGESTION_CHARS;
 
   return (
     <div ref={wrapRef} className="relative">
@@ -616,7 +720,7 @@ function FilterValueSuggestionInput({
       />
       {open ?
         <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-20 max-h-48 overflow-y-auto rounded-lg border border-crm-border bg-crm-panel shadow-lg">
-          {trimmedInput.length < MIN_SUGGESTION_CHARS ?
+          {!preloadOnFocus && trimmedInput.length < MIN_SUGGESTION_CHARS ?
             <p className="px-3 py-2 text-xs text-crm-text-muted">
               {needsMoreChars ?
                 `Type at least ${MIN_SUGGESTION_CHARS} characters…`
@@ -663,13 +767,17 @@ function FieldFilterSection({
   onManualChange: (patch: Partial<ManualFilterDraft>) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const hasCheckbox = field.hasOptions && field.options.length > 0;
+  // Category / Work Status / Scheduling Status use searchable suggestion input instead of checkboxes.
+  const hasCheckbox =
+    field.hasOptions && field.options.length > 0 && !fieldUsesPicklistSuggestions(field);
+  const isDate = isDateType(field.dataType);
   const manualActive =
     !hasCheckbox &&
     (manualDraft.value.trim().length > 0 ||
       (manualDraft.operator === "between" && manualDraft.value2.trim().length > 0));
   const active = hasCheckbox ? selectedValues.size > 0 : manualActive;
-  const useSuggestions = !hasCheckbox && !isDateType(field.dataType);
+  // Lookup / user / layout + selected picklists (Category, Work Status, Scheduling Status).
+  const useSuggestions = !hasCheckbox && !isDate && fieldUsesSuggestionInput(field);
 
   return (
     <section className="border-b border-crm-border/60 last:border-b-0">
@@ -742,14 +850,14 @@ function FieldFilterSection({
                     zohoModule={zohoModule}
                     value={manualDraft.value}
                     displayLabel={manualDraft.displayLabel}
-                    placeholder={`Enter ${field.label.toLowerCase()}…`}
+                    placeholder={`Search ${field.label.toLowerCase()}…`}
                     onChange={(patch) => onManualChange(patch)}
                   />
                 : <input
-                    type="date"
+                    type={isDate ? "date" : "text"}
                     value={manualDraft.value}
                     onChange={(e) => onManualChange({ value: e.target.value, displayLabel: undefined })}
-                    placeholder={`Enter ${field.label.toLowerCase()}…`}
+                    placeholder={isDate ? undefined : `Enter ${field.label.toLowerCase()}…`}
                     className="h-9 w-full rounded-lg border border-crm-border bg-crm-panel px-3 text-sm text-crm-text outline-none focus:border-blue-500"
                   />
                 }
@@ -770,9 +878,10 @@ function FieldFilterSection({
                       }
                     />
                   : <input
-                      type="date"
+                      type={isDate ? "date" : "text"}
                       value={manualDraft.value2}
                       onChange={(e) => onManualChange({ value2: e.target.value })}
+                      placeholder={isDate ? undefined : "To…"}
                       className="h-9 w-full rounded-lg border border-crm-border bg-crm-panel px-3 text-sm text-crm-text outline-none focus:border-blue-500"
                     />
                   }
@@ -1095,6 +1204,8 @@ export default function SideBar({
         values:
           row.operator === "is_empty" || row.operator === "is_not_empty" ?
             []
+          : row.operator === "between" ?
+            [row.value.trim(), String(row.value2 ?? "").trim()].filter(Boolean)
           : [row.value.trim()],
       }));
 

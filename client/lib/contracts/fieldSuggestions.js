@@ -2,6 +2,8 @@ import {
   buildFieldCriterion,
   fetchZohoJson,
   formatFieldValue,
+  getZohoModuleFieldsUrl,
+  getZohoModuleLayoutsUrl,
   getZohoModuleSearchUrl,
   ZOHO_CRM_BASE,
 } from "@/lib/zoho";
@@ -18,12 +20,22 @@ export const ALLOWED_SUGGESTION_MODULES = new Set([
   "Vendors",
   "Deals",
   "Accounts",
+  "Contacts",
+  "Products",
   "ServiceCompletions",
   "Notes",
   "Bids",
   "Emails",
   "Vendor_Invoices",
   "Team_Commissions",
+]);
+
+/** Picklists that load options via suggestion API on focus (not checkbox lists). */
+const PICKLIST_SUGGESTION_FIELDS = new Set([
+  "Category",
+  "Status", // Work Status
+  "Scheduling_Status", // Schedule / Scheduling Status
+  "CTI_Round",
 ]);
 
 const MAX_SUGGESTIONS = 100;
@@ -93,7 +105,10 @@ function labelFromRelatedRow(row, displayFields) {
     "SOWID",
     "Account_Name",
     "Vendor_Name",
+    "Full_Name",
     "full_name",
+    "Last_Name",
+    "First_Name",
   ]) {
     const value = displayValue(row?.[key]);
     if (value && !isIdOnlyLabel(value, String(row?.id ?? ""))) return value;
@@ -533,6 +548,10 @@ function lookupConfigForField(fieldApiName, lookupModule = "") {
     const displayFields =
       lookupModule === "Products" ? ["Product_Name", "Name"]
       : lookupModule === "Accounts" ? ["Account_Name", "Name"]
+      : lookupModule === "Contacts" ?
+        ["Full_Name", "Last_Name", "First_Name", "Account_Name", "Name"]
+      : lookupModule === "Deals" ? ["SOWID", "Deal_Name", "Name"]
+      : lookupModule === "Vendors" ? ["Vendor_Name", "Name"]
       : (known?.searchFields ?? [
           "Name",
           "Vendor_Name",
@@ -540,6 +559,7 @@ function lookupConfigForField(fieldApiName, lookupModule = "") {
           "Deal_Name",
           "Account_Name",
           "Product_Name",
+          "Full_Name",
         ]);
     return {
       module: lookupModule,
@@ -559,6 +579,89 @@ function lookupConfigForField(fieldApiName, lookupModule = "") {
 }
 
 /**
+ * Full picklist / multi-select options from Zoho field metadata.
+ * @param {string} module
+ * @param {string} fieldApiName
+ * @param {string} [query]
+ */
+async function fetchPicklistSuggestionsFromZoho(module, fieldApiName, query = "") {
+  const { res, body } = await fetchZohoJson(getZohoModuleFieldsUrl(module));
+  if (!res.ok || !Array.isArray(body?.fields)) return [];
+
+  const target = String(fieldApiName ?? "").trim().toLowerCase();
+  const field = body.fields.find(
+    (raw) =>
+      raw &&
+      typeof raw === "object" &&
+      String(/** @type {Record<string, unknown>} */ (raw).api_name ?? "")
+        .trim()
+        .toLowerCase() === target,
+  );
+  if (!field || typeof field !== "object") return [];
+
+  const values = /** @type {Record<string, unknown>} */ (field).pick_list_values;
+  if (!Array.isArray(values)) return [];
+
+  const q = String(query ?? "").trim().toLowerCase();
+  /** @type {FieldSuggestion[]} */
+  const out = [];
+  /** @type {Set<string>} */
+  const seen = new Set();
+
+  for (const raw of values) {
+    if (!raw || typeof raw !== "object") continue;
+    const opt = /** @type {Record<string, unknown>} */ (raw);
+    const value = String(opt.actual_value ?? "").trim();
+    if (!value || value === "-None-") continue;
+    const label = String(opt.display_value ?? value).trim() || value;
+    if (seen.has(value)) continue;
+    if (q && !label.toLowerCase().includes(q) && !value.toLowerCase().includes(q)) continue;
+    seen.add(value);
+    out.push({ value, label });
+    if (out.length >= MAX_SUGGESTIONS) break;
+  }
+
+  return out;
+}
+
+/**
+ * Module layout picker (Vendor / Client-Site / …).
+ * @param {string} module
+ * @param {string} [query]
+ */
+async function fetchLayoutSuggestions(module, query = "") {
+  const { res, body } = await fetchZohoJson(getZohoModuleLayoutsUrl(module));
+  if (!res.ok || !Array.isArray(body?.layouts)) return [];
+
+  const q = String(query ?? "").trim().toLowerCase();
+  /** @type {FieldSuggestion[]} */
+  const out = [];
+  /** @type {Set<string>} */
+  const seen = new Set();
+
+  for (const raw of body.layouts) {
+    if (!raw || typeof raw !== "object") continue;
+    const layout = /** @type {Record<string, unknown>} */ (raw);
+    const status = String(layout.status ?? "").toLowerCase();
+    if (status && status !== "active") continue;
+    const id = layout.id != null ? String(layout.id).trim() : "";
+    const label = String(
+      layout.display_label ?? layout.name ?? layout.display_value ?? id,
+    ).trim();
+    if (!id || !label) continue;
+    if (seen.has(id)) continue;
+    if (q && !label.toLowerCase().includes(q)) continue;
+    // Hide Fleet layout in filter UI (same as filterMeta applyLayoutOptionsToFields).
+    if (/^fleet$/i.test(label)) continue;
+    seen.add(id);
+    out.push({ value: id, label });
+    if (out.length >= MAX_SUGGESTIONS) break;
+  }
+
+  return out;
+}
+
+/**
  * Suggestions for any free-text filter field.
  * Lookup/user fields return `{ value: id, label: displayName }`.
  * Scalar fields return `{ value, label }` as the same string.
@@ -572,7 +675,9 @@ export async function fetchFieldSuggestions({
   dataType = "",
   lookupModule = "",
 }) {
-  if (!ALLOWED_SUGGESTION_MODULES.has(module)) {
+  const hostAllowed = ALLOWED_SUGGESTION_MODULES.has(module);
+  // Related-module nested filters may pass a child host; still allow when lookup target is known.
+  if (!hostAllowed && !lookupModule) {
     throw new Error(`Unsupported module: ${module}`);
   }
 
@@ -582,12 +687,17 @@ export async function fetchFieldSuggestions({
   const query = String(q ?? "").trim();
   const type = String(dataType ?? "").toLowerCase();
   const known = getKnownLookupFieldConfig(fieldApiName);
+  const suggestionHost = hostAllowed ? module : "Contracts";
+
+  if (type === "layout" || known?.kind === "layout" || fieldApiName === "Layout") {
+    return fetchLayoutSuggestions(suggestionHost, query);
+  }
 
   if (isUserLikeDataType(type) || known?.kind === "user") {
     const fromUsersApi = await fetchUserSuggestions(query);
     if (fromUsersApi.length > 0) return fromUsersApi;
     // Fallback when ZohoCRM.users.READ scope is missing (or field is multi-user empty on list).
-    return fetchUserSuggestionsFromParentRecords(module, fieldApiName, query);
+    return fetchUserSuggestionsFromParentRecords(suggestionHost, fieldApiName, query);
   }
 
   if (isLookupLikeDataType(type) || known?.kind === "lookup" || lookupModule) {
@@ -600,8 +710,28 @@ export async function fetchFieldSuggestions({
         console.error(`Lookup module suggestions failed (${config.module}):`, err);
       }
     }
-    return fetchSuggestionsFromParent(module, fieldApiName, query, "lookup");
+    return fetchSuggestionsFromParent(suggestionHost, fieldApiName, query, "lookup");
   }
 
-  return fetchSuggestionsFromParent(module, fieldApiName, query, "text");
+  const isPicklistSuggestField =
+    PICKLIST_SUGGESTION_FIELDS.has(fieldApiName) ||
+    type === "picklist" ||
+    type === "multiselectpicklist";
+
+  if (isPicklistSuggestField && PICKLIST_SUGGESTION_FIELDS.has(fieldApiName)) {
+    try {
+      const fromMeta = await fetchPicklistSuggestionsFromZoho(
+        suggestionHost,
+        fieldApiName,
+        query,
+      );
+      if (fromMeta.length > 0) return fromMeta;
+    } catch (err) {
+      console.error(`Picklist suggestions failed (${suggestionHost}.${fieldApiName}):`, err);
+    }
+    // Fallback: distinct values already used on records.
+    return fetchSuggestionsFromParent(suggestionHost, fieldApiName, query, "text");
+  }
+
+  return fetchSuggestionsFromParent(suggestionHost, fieldApiName, query, "text");
 }

@@ -307,6 +307,24 @@ export function getRelatedNestedFieldOperators() {
   return OPERATORS_BY_DATA_TYPE.related_nested ?? DEFAULT_OPERATORS;
 }
 
+const RELATED_NESTED_EMPTY_OPS = [
+  { id: "is_not_empty", label: "is not empty" },
+  { id: "is_empty", label: "is empty" },
+];
+
+/**
+ * Nested related-module operators: date/datetime get range ops (incl. between);
+ * other types keep the fixed related_nested set.
+ * @param {string} dataType
+ */
+export function getRelatedNestedOperatorsForDataType(dataType) {
+  const type = String(dataType ?? "").toLowerCase();
+  if (type === "date" || type === "datetime") {
+    return [...RELATED_NESTED_EMPTY_OPS, ...getOperatorsForDataType(type)];
+  }
+  return getRelatedNestedFieldOperators();
+}
+
 /**
  * Filterable fields on a related child module (for nested criteria UI).
  * @param {string} module
@@ -331,8 +349,7 @@ export async function loadNestedFilterFieldsForModule(module) {
     }
     const mapped = mapFilterField(raw, "fields");
     if (!mapped) continue;
-    // Nested related criteria use a fixed operator set (includes empty / not empty).
-    mapped.operators = getRelatedNestedFieldOperators();
+    mapped.operators = getRelatedNestedOperatorsForDataType(mapped.dataType);
     fields.push(mapped);
   }
 

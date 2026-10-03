@@ -190,6 +190,15 @@ function nestedClauseToZohoFilter(nested) {
 
   if (values.length === 0) return null;
 
+  if (operator === "between") {
+    if (values.length < 2) return null;
+    return {
+      field: { api_name: apiName },
+      comparator: "between",
+      value: [values[0], values[1]],
+    };
+  }
+
   const comparatorMap = {
     equals: "equal",
     equal: "equal",
@@ -197,9 +206,15 @@ function nestedClauseToZohoFilter(nested) {
     contains: "contains",
     starts_with: "starts_with",
     in: "in",
+    greater_than: "greater_than",
+    greater_equal: "greater_equal",
+    less_than: "less_than",
+    less_equal: "less_equal",
+    between: "between",
   };
   const comparator = comparatorMap[operator] ?? operator;
-  const value = operator === "in" || values.length > 1 ? values : values[0];
+  const value =
+    operator === "in" || operator === "between" || values.length > 1 ? values : values[0];
 
   return {
     field: { api_name: apiName },
@@ -296,7 +311,13 @@ function nestedClauseToSearchCriteria(nested) {
     return `(${apiName}:equals:null)`;
   }
   if (values.length === 0) return null;
-  if (operator === "in" || values.length > 1) {
+  if (operator === "between") {
+    if (values.length < 2) return null;
+    const a = escapeZohoCriteriaValue(values[0]);
+    const b = escapeZohoCriteriaValue(values[1]);
+    return `(${apiName}:between:${a},${b})`;
+  }
+  if (operator === "in") {
     return `(${apiName}:in:${values.map(escapeZohoCriteriaValue).join(",")})`;
   }
   if (operator === "not_equal") {
@@ -307,6 +328,14 @@ function nestedClauseToSearchCriteria(nested) {
   }
   if (operator === "starts_with") {
     return `(${apiName}:starts_with:${escapeZohoCriteriaValue(values[0])})`;
+  }
+  if (
+    operator === "greater_than" ||
+    operator === "greater_equal" ||
+    operator === "less_than" ||
+    operator === "less_equal"
+  ) {
+    return `(${apiName}:${operator}:${escapeZohoCriteriaValue(values[0])})`;
   }
   return `(${apiName}:equals:${escapeZohoCriteriaValue(values[0])})`;
 }
@@ -746,6 +775,7 @@ export function encodeRelatedModuleSelection(input) {
     .filter((n) => {
       if (!n.apiName) return false;
       if (n.operator === "is_empty" || n.operator === "is_not_empty") return true;
+      if (n.operator === "between") return n.values.length >= 2;
       return n.values.length > 0;
     });
 

@@ -107,20 +107,17 @@ function isLongTextColumn(apiName: string, dataType?: string) {
   return isRichTextField(apiName, dataType);
 }
 
-/** Wrap/scroll long cell values instead of truncating with ellipsis. */
+/** Wrap/scroll long cell values — fixed max height, never stretch the row. */
 function ScrollableCell({
   title,
   children,
-  dense = false,
 }: {
   title?: string;
   children: ReactNode;
-  /** Extra height for Contract Summary / Scope of Work / rich text. */
-  dense?: boolean;
 }) {
   return (
     <div
-      className={cn("crm-cell-scroll", dense && "crm-cell-scroll--tall")}
+      className="crm-cell-scroll"
       title={title}
       onWheel={(e) => e.stopPropagation()}
     >
@@ -184,7 +181,11 @@ function CellContent({
   lookupId?: string;
 }) {
   if (isStatusField(apiName)) {
-    return <StatusBadge status={value || "Active"} />;
+    return (
+      <ScrollableCell title={value || undefined}>
+        <StatusBadge status={value || "Active"} />
+      </ScrollableCell>
+    );
   }
   if (isContractLookupField(apiName, label)) {
     return (
@@ -192,18 +193,10 @@ function CellContent({
     );
   }
 
-  const tallScroll =
-    apiName === "Contract_Summary" ||
-    apiName === "Client_Summary" ||
-    apiName === "Our_Services_SubForm" ||
-    apiName === "Scope_of_Work" ||
-    isRichTextField(apiName, dataType) ||
-    dataType === "subform";
-
   if (shouldRenderAsRichHtml(apiName, value, dataType)) {
     const plain = cleanLongTextForList(htmlToPlainText(value));
     return (
-      <ScrollableCell title={plain || undefined} dense={tallScroll}>
+      <ScrollableCell title={plain || undefined}>
         <div
           className="crm-rich-text crm-rich-text--list"
           dangerouslySetInnerHTML={{ __html: sanitizeCrmRichHtmlForList(value) }}
@@ -216,7 +209,7 @@ function CellContent({
   if (isRichTextField(apiName, dataType) || value.includes("\n")) {
     const cleaned = cleanLongTextForList(value);
     return (
-      <ScrollableCell title={cleaned || undefined} dense={tallScroll}>
+      <ScrollableCell title={cleaned || undefined}>
         <div className="crm-plain-notes crm-plain-notes--list whitespace-pre-wrap break-words text-crm-text">
           {cleaned || "—"}
         </div>
@@ -238,7 +231,7 @@ function CellContent({
         .join("\n");
     }
     return (
-      <ScrollableCell title={value ? display : undefined} dense={tallScroll}>
+      <ScrollableCell title={value ? display : undefined}>
         <span className="whitespace-pre-wrap break-words text-crm-text">{display}</span>
       </ScrollableCell>
     );
@@ -280,7 +273,7 @@ function getColumnCellClass(
   }
 
   return cn(
-    "min-w-0 overflow-hidden px-3 py-3 align-top text-crm-text",
+    "min-w-0 overflow-hidden px-3 py-1.5 align-middle text-crm-text",
     pinned && "crm-col-pinned",
   );
 }
@@ -937,7 +930,7 @@ export default function ContractsTable({
                     columns={loaderColumns}
                     getCellClassName={(col, i) =>
                       col.apiName === SELECT_COL.apiName ?
-                        "crm-col-select-sticky px-3 py-4"
+                        "crm-col-select-sticky px-3 py-1.5"
                       : getColumnCellClass(col, i - 1, "body", isPinned(col.apiName))
                     }
                     getCellStyle={(col) => listColumnSizeStyle(col)}
@@ -1000,7 +993,7 @@ export default function ContractsTable({
                             }}
                           >
                             <TableCell
-                              className="crm-col-select-sticky px-3 py-4"
+                              className="crm-col-select-sticky px-3 py-1.5"
                               style={listColumnSizeStyle(SELECT_COL)}
                               onClick={(e) => e.stopPropagation()}
                             >

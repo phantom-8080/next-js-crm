@@ -11,7 +11,16 @@ export async function GET(request) {
   const dataType = searchParams.get("dataType")?.trim() || "";
   const lookupModule = searchParams.get("lookupModule")?.trim() || "";
 
-  if (!module || !ALLOWED_SUGGESTION_MODULES.has(module)) {
+  if (!module) {
+    return Response.json(
+      { error: "module is required", suggestions: [] },
+      { status: 400 },
+    );
+  }
+
+  // Allow known host modules, or any host when a lookup target module is provided
+  // (related-module nested lookup fields).
+  if (!ALLOWED_SUGGESTION_MODULES.has(module) && !lookupModule) {
     return Response.json(
       { error: "Invalid or unsupported module", suggestions: [] },
       { status: 400 },
