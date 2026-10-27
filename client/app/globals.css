@@ -306,12 +306,10 @@
   max-width: 100%;
   height: 2.5rem;
   max-height: 2.5rem;
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: hidden;
   overflow-wrap: break-word;
   word-break: normal;
   white-space: normal;
-  overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: var(--crm-scrollbar-thumb) var(--crm-scrollbar-track);
 }

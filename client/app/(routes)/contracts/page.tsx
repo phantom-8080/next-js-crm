@@ -1,19 +1,26 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useState, useSyncExternalStore } from "react";
 import SideBar from "@/components/layout/SideBar";
 import ContractsTable from "@/components/contracts/ContractTable";
-import type {
-  ContractFieldFilterSelection,
-  ContractFilterApplyPayload,
-} from "@/lib/contracts/filterTypes";
+import type { ContractFilterApplyPayload } from "@/lib/contracts/filterTypes";
 import { CONTRACTS_STATIC_ALL_VIEW_ID } from "@/lib/contracts/static";
+import {
+  getContractFiltersServerSnapshot,
+  getContractFiltersSnapshot,
+  subscribeContractFilters,
+  writeContractFilters,
+} from "@/lib/contracts/filterPersistence";
 
 export default function ContractsPage() {
+  const filters = useSyncExternalStore(
+    subscribeContractFilters,
+    getContractFiltersSnapshot,
+    getContractFiltersServerSnapshot,
+  );
+  const { searchCriteria, customViewId, fieldSelections } = filters;
+
   const [filtersOpen, setFiltersOpen] = useState(false);
-  const [searchCriteria, setSearchCriteria] = useState<string | null>(null);
-  const [customViewId, setCustomViewId] = useState<string | null>(null);
-  const [fieldSelections, setFieldSelections] = useState<ContractFieldFilterSelection[]>([]);
   const [filteredTotal, setFilteredTotal] = useState<number | null>(null);
   const [contractsLoading, setContractsLoading] = useState(false);
   const [offlineDemo, setOfflineDemo] = useState(false);
@@ -33,9 +40,11 @@ export default function ContractsPage() {
   }, []);
 
   const handleApplyFilters = useCallback((payload: ContractFilterApplyPayload) => {
-    setSearchCriteria(payload.criteria);
-    setCustomViewId(payload.customViewId);
-    setFieldSelections(payload.fieldSelections ?? []);
+    writeContractFilters({
+      searchCriteria: payload.criteria,
+      customViewId: payload.customViewId,
+      fieldSelections: payload.fieldSelections ?? [],
+    });
     if (!payload.criteria && !payload.customViewId && !(payload.fieldSelections?.length ?? 0)) {
       setFilteredTotal(null);
     }
@@ -72,9 +81,11 @@ export default function ContractsPage() {
           fieldSelections={fieldSelections}
           customViewsRefreshKey={customViewsRefreshKey}
           onClearSearchCriteria={() => {
-            setSearchCriteria(null);
-            setCustomViewId(null);
-            setFieldSelections([]);
+            writeContractFilters({
+              searchCriteria: null,
+              customViewId: null,
+              fieldSelections: [],
+            });
             setFilteredTotal(null);
           }}
           onFilteredTotalChange={handleFilteredTotalChange}

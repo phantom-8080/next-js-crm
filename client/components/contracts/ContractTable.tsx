@@ -1,25 +1,39 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
-import { Menu, Settings2 } from "lucide-react";
 import {
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-} from "@/components/ui/table";
-import { ContractsCardsLoader, ContractsTableLoader } from "@/components/contracts/ContractsTableLoader";
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
+import { ExternalLink, Menu, Settings2 } from "lucide-react";
+import { TableBody, TableCell, TableHead, TableRow } from "@/components/ui/table";
+import {
+  ContractsCardsLoader,
+  ContractsTableLoader,
+} from "@/components/contracts/ContractsTableLoader";
 import { ContractListSelectionActions } from "@/components/contracts/ContractListSelectionActions";
 import { ListTable } from "@/components/shared/ListTable";
 import { InlineLoadingShimmer, PaginationLoadingShimmer } from "@/components/shared/LoadingShimmer";
 import { ContractColumnsSettings } from "@/components/contracts/ContractColumnsSettings";
-import { ColumnHeaderMenu, type ColumnHeaderMenuAction } from "@/components/shared/ColumnHeaderMenu";
+import {
+  ColumnHeaderMenu,
+  type ColumnHeaderMenuAction,
+} from "@/components/shared/ColumnHeaderMenu";
 import { ResizableTableHeadCell } from "@/components/shared/ResizableTableHeadCell";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { Button } from "@/components/ui/button";
 import { useContractVisibleColumns } from "@/hooks/contracts/useContractVisibleColumns";
+import { LookupCellEditor } from "@/components/contracts/LookupCellEditor";
+import {
+  isFillableFieldType,
+  useContractFillDown,
+} from "@/hooks/contracts/useContractFillDown";
 import { usePinnedColumns } from "@/hooks/contracts/usePinnedColumns";
 import { useResizableColumnWidths } from "@/hooks/table/useResizableColumnWidths";
+import { isLookupLikeDataType } from "@/lib/contracts/filterMeta";
 import { cn } from "@/lib/utils";
 import {
   buildFieldsQueryParam,
@@ -61,7 +75,7 @@ import {
 import { CustomViewsDropdown } from "@/components/contracts/CustomViewsDropdown";
 import { getContractZohoRecordUrl } from "@/lib/zoho/crmRecordUrls";
 
-const SELECT_COL_WIDTH = 44;
+const SELECT_COL_WIDTH = 68;
 const SELECT_COL = { apiName: "_select" } as const;
 
 function openContractRecord(recordId: string) {
@@ -108,19 +122,9 @@ function isLongTextColumn(apiName: string, dataType?: string) {
 }
 
 /** Wrap/scroll long cell values — fixed max height, never stretch the row. */
-function ScrollableCell({
-  title,
-  children,
-}: {
-  title?: string;
-  children: ReactNode;
-}) {
+function ScrollableCell({ title, children }: { title?: string; children: ReactNode }) {
   return (
-    <div
-      className="crm-cell-scroll"
-      title={title}
-      onWheel={(e) => e.stopPropagation()}
-    >
+    <div className="crm-cell-scroll" title={title}>
       {children}
     </div>
   );
@@ -140,8 +144,7 @@ function LookupFieldCell({
   lookupId?: string;
 }) {
   const display = value || "—";
-  const href =
-    lookupId && value ? getContractLookupHref(apiName, lookupId) : null;
+  const href = lookupId && value ? getContractLookupHref(apiName, lookupId) : null;
 
   if (!href) {
     return (
@@ -188,9 +191,7 @@ function CellContent({
     );
   }
   if (isContractLookupField(apiName, label)) {
-    return (
-      <LookupFieldCell apiName={apiName} value={value} lookupId={lookupId} />
-    );
+    return <LookupFieldCell apiName={apiName} value={value} lookupId={lookupId} />;
   }
 
   if (shouldRenderAsRichHtml(apiName, value, dataType)) {
@@ -339,10 +340,22 @@ function ContractCard({
           type="checkbox"
           checked={selected}
           aria-label={`Select ${title}`}
-          className="mt-0.5 size-4 shrink-0 rounded border-crm-border accent-blue-500"
+          className="mt-0.5 size-4 shrink-0 cursor-pointer rounded border-crm-border accent-blue-500"
           onClick={(e) => e.stopPropagation()}
           onChange={(e) => onSelectedChange(e.target.checked)}
         />
+        <button
+          type="button"
+          className="mt-0.5 shrink-0 cursor-pointer text-crm-link hover:text-blue-700 dark:hover:text-blue-300"
+          aria-label={`Open ${title}`}
+          title="Open contract"
+          onClick={(e) => {
+            e.stopPropagation();
+            openContractRecord(row.id);
+          }}
+        >
+          <ExternalLink className="size-4" />
+        </button>
         <p className="min-w-0 flex-1 truncate text-sm font-medium text-crm-text">{title}</p>
       </div>
       <dl className="space-y-2.5 text-sm">
@@ -400,14 +413,57 @@ export default function ContractsTable({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [columnSort, setColumnSort] = useState<ColumnSortState | null>(null);
 
+  // Reset page/selection when list query inputs change — adjust during render
+  // (React-recommended) instead of setState inside useEffect.
+  const listQueryKey = useMemo(
+    () =>
+      JSON.stringify({
+        searchCriteria: searchCriteria ?? null,
+        customViewId: customViewId ?? null,
+        fieldSelections,
+        columnSort,
+      }),
+    [searchCriteria, customViewId, fieldSelections, columnSort],
+  );
+  const [pageQueryKey, setPageQueryKey] = useState(listQueryKey);
+  if (pageQueryKey !== listQueryKey) {
+    setPageQueryKey(listQueryKey);
+    setPage(1);
+  }
+
+  const selectionScopeKey = `${listQueryKey}::${page}`;
+  const [selectionScopeKeyState, setSelectionScopeKeyState] = useState(selectionScopeKey);
+  if (selectionScopeKeyState !== selectionScopeKey) {
+    setSelectionScopeKeyState(selectionScopeKey);
+    setSelectedIds(new Set());
+  }
+
+  const {
+    filling,
+    fillMessage,
+    fillError,
+    pendingUpdate,
+    confirmPendingUpdate,
+    cancelPendingUpdate,
+    draftValue,
+    setDraftValue,
+    selectLookupSuggestion,
+    selectCell,
+    startEditing,
+    commitEditAndSave,
+    cancelEdit,
+    beginFillDrag,
+    isCellInFillPreview,
+    isActiveCell,
+    isEditingCell,
+    clearFillMessage,
+  } = useContractFillDown({ contracts, setContracts });
+
   const handleFieldsLoaded = useCallback((fields: CrmFieldMeta[]) => {
     setFieldCatalog(fields);
   }, []);
 
-  const columnsToShow = useMemo(
-    () => normalizeVisibleApiNames(visibleApiNames),
-    [visibleApiNames],
-  );
+  const columnsToShow = useMemo(() => normalizeVisibleApiNames(visibleApiNames), [visibleApiNames]);
 
   const columnMeta = useMemo(() => {
     const byApi = new Map<string, CrmFieldMeta>();
@@ -418,9 +474,9 @@ export default function ContractsTable({
     const base = columnsToShow.map((apiName: string) => {
       const meta = byApi.get(apiName);
       const fallbackLabel =
-        apiName === "Our_Services_SubForm" || apiName === "Scope_of_Work"
-          ? "Scope of Work"
-          : apiName.replace(/_/g, " ");
+        apiName === "Our_Services_SubForm" || apiName === "Scope_of_Work" ?
+          "Scope of Work"
+        : apiName.replace(/_/g, " ");
       return {
         apiName,
         label: meta?.label ?? fallbackLabel,
@@ -444,15 +500,6 @@ export default function ContractsTable({
   );
 
   useEffect(() => {
-    setPage(1);
-    setSelectedIds(new Set());
-  }, [searchCriteria, customViewId, fieldSelections, columnSort]);
-
-  useEffect(() => {
-    setSelectedIds(new Set());
-  }, [page]);
-
-  useEffect(() => {
     let cancelled = false;
 
     async function loadContracts() {
@@ -462,13 +509,9 @@ export default function ContractsTable({
 
       try {
         const cvidPart =
-          customViewId && !searchCriteria ?
-            `&cvid=${encodeURIComponent(customViewId)}`
-          : "";
+          customViewId && !searchCriteria ? `&cvid=${encodeURIComponent(customViewId)}` : "";
         const criteriaPart =
-          searchCriteria && !customViewId ?
-            `&criteria=${encodeURIComponent(searchCriteria)}`
-          : "";
+          searchCriteria && !customViewId ? `&criteria=${encodeURIComponent(searchCriteria)}` : "";
         // Always pass sort; API only forwards Zoho-supported fields (id /
         // Created_Time / Modified_Time). Other columns are page-sorted locally.
         const sortPart =
@@ -506,9 +549,7 @@ export default function ContractsTable({
             });
             const rows: ContractRecord[] = filtered.map((r) => ({
               id: r.id,
-              fields: Object.fromEntries(
-                columnsToShow.map((name) => [name, r.fields[name] ?? ""]),
-              ),
+              fields: Object.fromEntries(columnsToShow.map((name) => [name, r.fields[name] ?? ""])),
               lookups: r.lookups,
             }));
             const dataTypeByApi = new Map(
@@ -542,10 +583,7 @@ export default function ContractsTable({
                 sortContractRecords(liveRows, columnSort, dataTypeByApi)
               : liveRows,
             );
-            const total =
-              typeof data.totalCount === "number" ?
-                data.totalCount
-              : liveRows.length;
+            const total = typeof data.totalCount === "number" ? data.totalCount : liveRows.length;
             setTotalCount(total);
             if (data.filtered && onFilteredTotalChange) {
               onFilteredTotalChange(total);
@@ -635,20 +673,20 @@ export default function ContractsTable({
     [hideColumn, onFilterByColumn, onOpenFilters, togglePinned],
   );
 
-  const totalPages =
-    totalCount != null ? Math.max(1, Math.ceil(totalCount / pageSize)) : null;
+  const totalPages = totalCount != null ? Math.max(1, Math.ceil(totalCount / pageSize)) : null;
   const totalLabel =
     totalCount != null ? totalCount.toLocaleString("en-US")
     : loading ? "—"
     : "0";
   const totalSuffix =
     offlineDemo ?
-      fieldSelections.length > 0 ||
-      (customViewId != null && customViewId !== CONTRACTS_STATIC_ALL_VIEW_ID) ?
+      (
+        fieldSelections.length > 0 ||
+        (customViewId != null && customViewId !== CONTRACTS_STATIC_ALL_VIEW_ID)
+      ) ?
         " matching sample records"
       : " sample records"
-    : searchCriteria || customViewId ?
-      " matching records"
+    : searchCriteria || customViewId ? " matching records"
     : " total in CRM";
 
   const showFilteredBadge =
@@ -660,10 +698,8 @@ export default function ContractsTable({
   const colCount = Math.max(1, columnMeta.length) + 1;
   const pageIds = useMemo(() => contracts.map((row) => row.id), [contracts]);
   const selectedCount = selectedIds.size;
-  const allPageSelected =
-    pageIds.length > 0 && pageIds.every((id) => selectedIds.has(id));
-  const somePageSelected =
-    pageIds.some((id) => selectedIds.has(id)) && !allPageSelected;
+  const allPageSelected = pageIds.length > 0 && pageIds.every((id) => selectedIds.has(id));
+  const somePageSelected = pageIds.some((id) => selectedIds.has(id)) && !allPageSelected;
 
   const toggleRowSelected = useCallback((id: string, selected: boolean) => {
     setSelectedIds((prev) => {
@@ -691,10 +727,7 @@ export default function ContractsTable({
 
   const listColumns = useMemo(() => [SELECT_COL, ...columnMeta], [columnMeta]);
   const loaderColumns = useMemo(
-    () => [
-      { apiName: SELECT_COL.apiName, label: "", dataType: "text" },
-      ...columnMeta,
-    ],
+    () => [{ apiName: SELECT_COL.apiName, label: "", dataType: "text" }, ...columnMeta],
     [columnMeta],
   );
 
@@ -741,7 +774,12 @@ export default function ContractsTable({
       <TableRow className="border-crm-border hover:bg-transparent">
         <TableHead
           className="crm-col-select-sticky h-10 px-3 py-0"
-          style={{ left: 0, width: SELECT_COL_WIDTH, minWidth: SELECT_COL_WIDTH, maxWidth: SELECT_COL_WIDTH }}
+          style={{
+            left: 0,
+            width: SELECT_COL_WIDTH,
+            minWidth: SELECT_COL_WIDTH,
+            maxWidth: SELECT_COL_WIDTH,
+          }}
         >
           <input
             type="checkbox"
@@ -750,42 +788,38 @@ export default function ContractsTable({
               if (el) el.indeterminate = somePageSelected;
             }}
             aria-label="Select all contracts on this page"
-            className="size-4 rounded border-crm-border accent-blue-500"
+            className="size-4 cursor-pointer rounded border-crm-border accent-blue-500 disabled:cursor-not-allowed"
             disabled={loading || pageIds.length === 0}
             onChange={toggleSelectAllOnPage}
           />
         </TableHead>
-        {columnMeta.map(
-          (col: { apiName: string; label: string; dataType: string }, i: number) => {
-            const pinned = isPinned(col.apiName);
-            const pinnedLeft = pinnedLeftByApiName.get(col.apiName);
-            return (
-              <ResizableTableHeadCell
-                key={col.apiName}
-                className={getColumnCellClass(col, i, "head", pinned)}
-                style={{
-                  ...columnSizeStyle(col),
-                  ...(pinnedLeft != null ? { left: pinnedLeft } : null),
-                }}
-                label={
-                  <ColumnHeaderMenu
-                    columnLabel={col.label}
-                    pinned={pinned}
-                    sortDirection={
-                      columnSort?.apiName === col.apiName ? columnSort.direction : null
-                    }
-                    canSort={canSortColumn(col.apiName, col.dataType)}
-                    canHide={columnsToShow.length > 1}
-                    canFilter={Boolean(onFilterByColumn || onOpenFilters)}
-                    onAction={(action) => handleColumnMenuAction(col, action)}
-                  />
-                }
-                showDivider={i < columnMeta.length - 1}
-                onResizeStart={(clientX) => beginColumnResize(col.apiName, clientX, col)}
-              />
-            );
-          },
-        )}
+        {columnMeta.map((col: { apiName: string; label: string; dataType: string }, i: number) => {
+          const pinned = isPinned(col.apiName);
+          const pinnedLeft = pinnedLeftByApiName.get(col.apiName);
+          return (
+            <ResizableTableHeadCell
+              key={col.apiName}
+              className={getColumnCellClass(col, i, "head", pinned)}
+              style={{
+                ...columnSizeStyle(col),
+                ...(pinnedLeft != null ? { left: pinnedLeft } : null),
+              }}
+              label={
+                <ColumnHeaderMenu
+                  columnLabel={col.label}
+                  pinned={pinned}
+                  sortDirection={columnSort?.apiName === col.apiName ? columnSort.direction : null}
+                  canSort={canSortColumn(col.apiName, col.dataType)}
+                  canHide={columnsToShow.length > 1}
+                  canFilter={Boolean(onFilterByColumn || onOpenFilters)}
+                  onAction={(action) => handleColumnMenuAction(col, action)}
+                />
+              }
+              showDivider={i < columnMeta.length - 1}
+              onResizeStart={(clientX) => beginColumnResize(col.apiName, clientX, col)}
+            />
+          );
+        })}
       </TableRow>
     );
   }
@@ -820,9 +854,7 @@ export default function ContractsTable({
             <div className="min-w-0 flex flex-1 flex-wrap items-center gap-x-2 gap-y-1.5 sm:gap-x-3">
               <h1 className="page-heading truncate text-base sm:text-lg">Contracts</h1>
               {selectedCount > 0 ?
-                <ContractListSelectionActions
-                  selectedRecordIds={Array.from(selectedIds)}
-                />
+                <ContractListSelectionActions selectedRecordIds={Array.from(selectedIds)} />
               : null}
               {onApplyCustomView ?
                 <CustomViewsDropdown
@@ -840,7 +872,7 @@ export default function ContractsTable({
                   className="max-w-[min(16rem,55vw)] sm:max-w-[18rem]"
                 />
               : null}
-              {(showFilteredBadge) && onClearSearchCriteria ?
+              {showFilteredBadge && onClearSearchCriteria ?
                 <button
                   type="button"
                   onClick={() => {
@@ -905,14 +937,111 @@ export default function ContractsTable({
         </div>
         {offlineDemo ?
           <div className="border-b border-amber-200/80 bg-amber-50 px-3 py-2.5 text-sm text-amber-950 sm:px-6 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-100">
-            Zoho CRM is unreachable. Showing sample contracts and demo filters. Reconnect to
-            load live data. Advanced text filters need Zoho; use status, vendor, and views
-            below.
+            Zoho CRM is unreachable. Showing sample contracts and demo filters. Reconnect to load
+            live data. Advanced text filters need Zoho; use status, vendor, and views below.
           </div>
         : null}
         {error ?
           <div className="border-b border-red-900/50 bg-red-950/40 px-3 py-3 text-sm text-red-300 sm:px-6">
             {error}
+          </div>
+        : null}
+        {fillError ?
+          <div className="flex items-start justify-between gap-3 border-b border-red-900/50 bg-red-950/40 px-3 py-2.5 text-sm text-red-300 sm:px-6">
+            <span className="min-w-0 break-words">{fillError}</span>
+            <button
+              type="button"
+              className="shrink-0 text-xs underline opacity-80 hover:opacity-100"
+              onClick={clearFillMessage}
+            >
+              Dismiss
+            </button>
+          </div>
+        : null}
+        {fillMessage && !fillError ?
+          <div className="flex items-start justify-between gap-3 border-b border-crm-border bg-crm-panel-muted px-3 py-2.5 text-sm text-crm-text sm:px-6">
+            <span className="min-w-0 break-words">
+              {filling ?
+                <InlineLoadingShimmer className="mr-2 inline-block align-middle" />
+              : null}
+              {fillMessage}
+            </span>
+            {!filling ?
+              <button
+                type="button"
+                className="shrink-0 text-xs text-crm-text-muted underline hover:text-crm-text"
+                onClick={clearFillMessage}
+              >
+                Dismiss
+              </button>
+            : null}
+          </div>
+        : null}
+        {pendingUpdate ?
+          <div
+            className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4"
+            role="presentation"
+            onClick={cancelPendingUpdate}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="fill-confirm-title"
+              className="w-full max-w-md rounded-lg border border-crm-border bg-crm-panel p-5 shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  cancelPendingUpdate();
+                }
+              }}
+            >
+              <h2 id="fill-confirm-title" className="text-base font-semibold text-crm-text">
+                Confirm update
+              </h2>
+              <p className="mt-2 text-sm text-crm-text">
+                Update{" "}
+                <span className="font-medium tabular-nums">
+                  {pendingUpdate.recordIds.length}
+                </span>{" "}
+                contract{pendingUpdate.recordIds.length === 1 ? "" : "s"}?
+              </p>
+              <dl className="mt-3 space-y-1 text-sm">
+                <div className="flex gap-2">
+                  <dt className="shrink-0 text-crm-text-muted">Field</dt>
+                  <dd className="min-w-0 break-words text-crm-text">
+                    {pendingUpdate.fieldApiName.replace(/_/g, " ")}
+                  </dd>
+                </div>
+                <div className="flex gap-2">
+                  <dt className="shrink-0 text-crm-text-muted">Value</dt>
+                  <dd className="min-w-0 break-words text-crm-text">
+                    {pendingUpdate.displayValue || "—"}
+                  </dd>
+                </div>
+              </dl>
+              <div className="mt-5 flex justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="crm-toolbar-btn cursor-pointer"
+                  onClick={cancelPendingUpdate}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="cursor-pointer bg-blue-600 text-white hover:bg-blue-500"
+                  onClick={() => {
+                    void confirmPendingUpdate();
+                  }}
+                >
+                  Update
+                </Button>
+              </div>
+            </div>
           </div>
         : null}
         <div className="relative z-0 flex min-h-0 flex-1 flex-col">
@@ -941,7 +1070,9 @@ export default function ContractsTable({
           : <>
               <div className="space-y-3 overflow-auto p-3 md:hidden">
                 {contracts.length === 0 ?
-                  <p className="py-12 text-center text-sm text-crm-text-muted">No contracts found.</p>
+                  <p className="py-12 text-center text-sm text-crm-text-muted">
+                    No contracts found.
+                  </p>
                 : contracts.map((row) => (
                     <ContractCard
                       key={row.id}
@@ -961,49 +1092,63 @@ export default function ContractsTable({
                   headerRow={renderTableHeadRow()}
                 >
                   <TableBody>
-                      {contracts.length === 0 ?
-                        <TableRow className="border-crm-border hover:bg-transparent">
-                          <TableCell
-                            colSpan={colCount}
-                            className="px-6 py-12 text-center text-sm text-crm-text-muted"
-                          >
-                            No contracts found.
-                          </TableCell>
-                        </TableRow>
-                      : contracts.map((row) => {
-                          const isSelected = selectedIds.has(row.id);
-                          const rowTitle =
-                            row.fields.Name?.trim() ||
-                            row.fields.Company_Name?.trim() ||
-                            row.fields.Vendor?.trim() ||
-                            `Contract ${row.id}`;
-                          return (
+                    {contracts.length === 0 ?
+                      <TableRow className="border-crm-border hover:bg-transparent">
+                        <TableCell
+                          colSpan={colCount}
+                          className="px-6 py-12 text-center text-sm text-crm-text-muted"
+                        >
+                          No contracts found.
+                        </TableCell>
+                      </TableRow>
+                    : contracts.map((row, rowIndex) => {
+                        const isSelected = selectedIds.has(row.id);
+                        const rowTitle =
+                          row.fields.Name?.trim() ||
+                          row.fields.Company_Name?.trim() ||
+                          row.fields.Vendor?.trim() ||
+                          `Contract ${row.id}`;
+                        return (
                           <TableRow
                             key={row.id}
                             role="link"
                             tabIndex={0}
                             data-state={isSelected ? "selected" : undefined}
+                            title="Click a cell to select. Double-click the cell to edit, then drag the corner handle to fill down. Alt+double-click row to open in Zoho."
                             className="crm-row-hover border-crm-border text-crm-text"
-                            onClick={() => openContractRecord(row.id)}
+                            onDoubleClick={(e) => {
+                              if (e.altKey) openContractRecord(row.id);
+                            }}
                             onKeyDown={(e) => {
-                              if (e.key === "Enter" || e.key === " ") {
+                              if (e.key === "Enter" && e.altKey) {
                                 e.preventDefault();
                                 openContractRecord(row.id);
                               }
                             }}
                           >
                             <TableCell
-                              className="crm-col-select-sticky px-3 py-1.5"
+                              className="crm-col-select-sticky px-2 py-1.5"
                               style={listColumnSizeStyle(SELECT_COL)}
                               onClick={(e) => e.stopPropagation()}
                             >
-                              <input
-                                type="checkbox"
-                                checked={isSelected}
-                                aria-label={`Select ${rowTitle}`}
-                                className="size-4 rounded border-crm-border accent-blue-500"
-                                onChange={(e) => toggleRowSelected(row.id, e.target.checked)}
-                              />
+                              <div className="flex items-center justify-center gap-1.5">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  aria-label={`Select ${rowTitle}`}
+                                  className="size-4 shrink-0 cursor-pointer rounded border-crm-border accent-blue-500"
+                                  onChange={(e) => toggleRowSelected(row.id, e.target.checked)}
+                                />
+                                <button
+                                  type="button"
+                                  className="shrink-0 cursor-pointer text-crm-link hover:text-blue-700 dark:hover:text-blue-300"
+                                  aria-label={`Open ${rowTitle}`}
+                                  title="Open contract"
+                                  onClick={() => openContractRecord(row.id)}
+                                >
+                                  <ExternalLink className="size-3.5" />
+                                </button>
+                              </div>
                             </TableCell>
                             {columnMeta.map(
                               (
@@ -1016,31 +1161,111 @@ export default function ContractsTable({
                                 const cellClass = getColumnCellClass(col, i, "body", pinned);
                                 const lookupId = getContractFieldLookupId(row.lookups, col.apiName);
                                 const pinnedLeft = pinnedLeftByApiName.get(col.apiName);
+                                const fillable = isFillableFieldType(
+                                  col.dataType,
+                                  col.apiName,
+                                );
+                                const active = isActiveCell(row.id, col.apiName);
+                                const editingThis = isEditingCell(row.id, col.apiName);
+                                const inPreview = isCellInFillPreview(rowIndex, col.apiName);
+                                const cellRef = {
+                                  rowId: row.id,
+                                  rowIndex,
+                                  apiName: col.apiName,
+                                  dataType: col.dataType,
+                                };
                                 return (
                                   <TableCell
                                     key={col.apiName}
-                                    className={cellClass}
+                                    data-fill-row={fillable ? rowIndex : undefined}
+                                    data-fill-col={fillable ? col.apiName : undefined}
+                                    className={cn(
+                                      cellClass,
+                                      "relative",
+                                      fillable && "cursor-cell",
+                                      active && "ring-2 ring-inset ring-blue-500",
+                                      inPreview && !active && "bg-blue-500/10",
+                                      filling && "pointer-events-none opacity-80",
+                                      editingThis && "z-40 overflow-visible",
+                                    )}
                                     style={{
                                       ...columnSizeStyle(col),
                                       ...(pinnedLeft != null ? { left: pinnedLeft } : null),
                                     }}
+                                    onClick={(e) => {
+                                      if (!fillable || editingThis) return;
+                                      e.stopPropagation();
+                                      selectCell(cellRef);
+                                    }}
+                                    onDoubleClick={(e) => {
+                                      if (!fillable) return;
+                                      e.stopPropagation();
+                                      e.preventDefault();
+                                      startEditing(cellRef);
+                                    }}
                                   >
-                                    <CellContent
-                                      apiName={col.apiName}
-                                      label={col.label}
-                                      value={value}
-                                      dataType={col.dataType}
-                                      lookupId={lookupId}
-                                    />
+                                    {editingThis ?
+                                      isLookupLikeDataType(col.dataType) ?
+                                        <LookupCellEditor
+                                          apiName={col.apiName}
+                                          label={col.label}
+                                          dataType={col.dataType}
+                                          draftValue={draftValue}
+                                          onDraftChange={setDraftValue}
+                                          onSelectSuggestion={selectLookupSuggestion}
+                                          onCommit={() => {
+                                            void commitEditAndSave();
+                                          }}
+                                          onCancel={cancelEdit}
+                                          module="Contracts"
+                                        />
+                                      : <input
+                                          autoFocus
+                                          value={draftValue}
+                                          aria-label={`Edit ${col.label}`}
+                                          className="h-8 w-full min-w-0 rounded border border-blue-500 bg-crm-panel px-1.5 text-sm text-crm-text outline-none"
+                                          onClick={(e) => e.stopPropagation()}
+                                          onChange={(e) => setDraftValue(e.target.value)}
+                                          onBlur={() => {
+                                            void commitEditAndSave();
+                                          }}
+                                          onKeyDown={(e) => {
+                                            e.stopPropagation();
+                                            if (e.key === "Enter") {
+                                              e.preventDefault();
+                                              void commitEditAndSave();
+                                            } else if (e.key === "Escape") {
+                                              e.preventDefault();
+                                              cancelEdit();
+                                            }
+                                          }}
+                                        />
+                                    : <CellContent
+                                        apiName={col.apiName}
+                                        label={col.label}
+                                        value={value}
+                                        dataType={col.dataType}
+                                        lookupId={lookupId}
+                                      />
+                                    }
+                                    {fillable && active && !editingThis ?
+                                      <span
+                                        role="presentation"
+                                        aria-hidden
+                                        title="Drag to fill adjacent rows with this value"
+                                        className="absolute bottom-0 right-0 z-20 size-3 cursor-crosshair border border-white bg-blue-600 shadow-sm dark:border-zinc-900"
+                                        onPointerDown={(e) => beginFillDrag(cellRef, e)}
+                                      />
+                                    : null}
                                   </TableCell>
                                 );
                               },
                             )}
                           </TableRow>
-                          );
-                        })
-                      }
-                    </TableBody>
+                        );
+                      })
+                    }
+                  </TableBody>
                 </ListTable>
               </div>
             </>

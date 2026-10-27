@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   ChevronDown,
@@ -15,6 +15,8 @@ import {
 import { cn } from "@/lib/utils";
 import type { ContractFilterFieldMeta } from "@/lib/contracts/filterTypes";
 import { getOperatorsForDataType } from "@/lib/contracts/filterMeta";
+import { CONTRACTS_ALL_VIEW_FAVORITE_ID } from "@/lib/contracts/filterPersistence";
+import { useFavoriteCustomViews } from "@/hooks/contracts/useFavoriteCustomViews";
 
 type CustomViewsDropdownProps = {
   zohoModule?: string;
@@ -58,15 +60,17 @@ export function CustomViewsDropdown({
   const [listError, setListError] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const { isFavorite, toggleFavorite, mergeZohoFavorites } = useFavoriteCustomViews();
 
-  async function loadViews() {
-    setLoading(true);
-    setError(null);
+  const viewsPath =
+    zohoModule === "Contracts" ? "/api/contracts/custom-views"
+    : `/api/${encodeURIComponent(zohoModule.toLowerCase())}/custom-views`;
+  const filtersPath =
+    zohoModule === "Contracts" ? "/api/contracts/filters"
+    : `/api/${encodeURIComponent(zohoModule.toLowerCase())}/filters`;
+
+  const loadViews = useCallback(async () => {
     try {
-      // Live Zoho list — not the cached /api/contracts/filters payload.
-      const viewsPath =
-        zohoModule === "Contracts" ? "/api/contracts/custom-views"
-        : `/api/${encodeURIComponent(zohoModule.toLowerCase())}/custom-views`;
       const viewsRes = await fetch(viewsPath, { cache: "no-store" });
       const viewsData = (await viewsRes.json()) as {
         views?: ContractFilterFieldMeta[];
@@ -75,14 +79,15 @@ export function CustomViewsDropdown({
       if (!viewsRes.ok && !viewsData.views?.length) {
         throw new Error(viewsData.error ?? "Failed to load custom views");
       }
-      setViews(
-        (viewsData.views ?? []).filter((f) => f.dataType === "custom_view" && f.customViewId),
+      const nextViews = (viewsData.views ?? []).filter(
+        (f) => f.dataType === "custom_view" && f.customViewId,
+      );
+      setViews(nextViews);
+      setError(null);
+      mergeZohoFavorites(
+        nextViews.filter((v) => v.favorite && v.customViewId).map((v) => v.customViewId!),
       );
 
-      // Field options for "Create custom view" form (separate from view list cache).
-      const filtersPath =
-        zohoModule === "Contracts" ? "/api/contracts/filters"
-        : `/api/${encodeURIComponent(zohoModule.toLowerCase())}/filters`;
       const filtersRes = await fetch(filtersPath, { cache: "no-store" });
       const filtersData = (await filtersRes.json()) as {
         fields?: ContractFilterFieldMeta[];
@@ -103,18 +108,34 @@ export function CustomViewsDropdown({
     } finally {
       setLoading(false);
     }
-  }
+  }, [filtersPath, mergeZohoFavorites, viewsPath]);
 
+  // Defer fetch so setState is not synchronous inside the effect body.
   useEffect(() => {
-    void loadViews();
-  }, [zohoModule, refreshKey]);
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (cancelled) return;
+      loadViews().catch(() => undefined);
+    }, 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [loadViews, refreshKey]);
 
   // Refresh from Zoho every time the dropdown opens so new CRM views appear immediately.
   useEffect(() => {
-    if (open && mode === "list") {
-      void loadViews();
-    }
-  }, [open]);
+    if (!open || mode !== "list") return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (cancelled) return;
+      loadViews().catch(() => undefined);
+    }, 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [open, mode, loadViews]);
 
   useEffect(() => {
     if (!open) return;
@@ -159,6 +180,15 @@ export function CustomViewsDropdown({
     );
   }, [selectedCustomViewId, views]);
 
+  const viewIsFavorite = useCallback(
+    (view: ContractFilterFieldMeta) => {
+      const id = view.customViewId;
+      if (!id) return false;
+      return isFavorite(id);
+    },
+    [isFavorite],
+  );
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return views;
@@ -168,6 +198,24 @@ export function CustomViewsDropdown({
         (v.groupLabel?.toLowerCase().includes(q) ?? false),
     );
   }, [views, query]);
+
+  const { favoriteViews, otherViewRows } = useMemo(() => {
+    const favorites: ContractFilterFieldMeta[] = [];
+    const others: ContractFilterFieldMeta[] = [];
+    for (const view of filtered) {
+      if (viewIsFavorite(view)) favorites.push(view);
+      else others.push(view);
+    }
+    let lastGroup: string | undefined;
+    const rows = others.map((view) => {
+      const showGroup = Boolean(view.groupLabel && view.groupLabel !== lastGroup);
+      if (view.groupLabel) lastGroup = view.groupLabel;
+      return { view, showGroup };
+    });
+    return { favoriteViews: favorites, otherViewRows: rows };
+  }, [filtered, viewIsFavorite]);
+
+  const allContractsFavorite = isFavorite(CONTRACTS_ALL_VIEW_FAVORITE_ID);
 
   const selectedField = useMemo(
     () => filterFields.find((f) => f.apiName === condition.apiName),
@@ -289,7 +337,80 @@ export function CustomViewsDropdown({
     }
   }
 
-  let lastGroup: string | undefined;
+  function renderViewRow(view: ContractFilterFieldMeta, showGroup: boolean) {
+    const checked = selectedCustomViewId === view.customViewId;
+    const deletable = canDeleteView(view);
+    const isDeleting = deletingId === view.customViewId;
+    const favorited = viewIsFavorite(view);
+    return (
+      <div key={view.apiName}>
+        {showGroup && view.groupLabel ?
+          <p className="crm-custom-view-group px-2">{view.groupLabel}</p>
+        : null}
+        <div
+          className={cn(
+            "crm-custom-view-option group flex items-center gap-1 rounded-lg px-1 py-0.5 transition",
+            checked ?
+              "bg-blue-500/12 ring-1 ring-blue-500/30"
+            : "hover:bg-zinc-100 dark:hover:bg-zinc-800/70",
+          )}
+        >
+          <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 px-1.5 py-1.5">
+            <input
+              type="checkbox"
+              checked={checked}
+              onChange={() => selectView(checked ? null : (view.customViewId ?? null))}
+              className="size-4 shrink-0 rounded border-crm-border accent-blue-500"
+            />
+            <span className="min-w-0 flex-1 truncate text-sm text-crm-text">{view.label}</span>
+            {checked ?
+              <Check className="size-3.5 shrink-0 text-blue-500" aria-hidden />
+            : null}
+          </label>
+          {view.customViewId ?
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleFavorite(view.customViewId!);
+              }}
+              className="cursor-pointer rounded-md p-1.5 text-crm-text-muted transition hover:bg-amber-500/10 hover:text-amber-500"
+              aria-label={
+                favorited ? `Remove ${view.label} from favorites` : `Bookmark ${view.label}`
+              }
+              title={favorited ? "Remove bookmark" : "Bookmark filter"}
+            >
+              <Star
+                className={cn(
+                  "size-3.5",
+                  favorited ?
+                    "fill-amber-400 text-amber-400"
+                  : "text-crm-text-muted opacity-70 group-hover:opacity-100",
+                )}
+              />
+            </button>
+          : null}
+          {deletable ?
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                void deleteView(view);
+              }}
+              disabled={Boolean(deletingId)}
+              className="mr-1 cursor-pointer rounded-md p-1.5 text-crm-text-muted opacity-70 transition hover:bg-red-500/10 hover:text-red-500 group-hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label={`Delete ${view.label}`}
+              title="Delete from Zoho CRM"
+            >
+              {isDeleting ?
+                <Loader2 className="size-3.5 animate-spin" />
+              : <Trash2 className="size-3.5" />}
+            </button>
+          : null}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div ref={rootRef} className={cn("relative min-w-0", className)}>
@@ -357,27 +478,52 @@ export function CustomViewsDropdown({
                 : error ?
                   <p className="px-3 py-6 text-center text-sm text-red-500">{error}</p>
                 : <>
-                    <label
+                    <div
                       className={cn(
-                        "crm-custom-view-option flex cursor-pointer items-center gap-2.5 rounded-lg px-2.5 py-2 transition",
+                        "crm-custom-view-option group flex items-center gap-1 rounded-lg px-1 py-0.5 transition",
                         !selectedCustomViewId ?
                           "bg-blue-500/12 ring-1 ring-blue-500/30"
                         : "hover:bg-zinc-100 dark:hover:bg-zinc-800/70",
                       )}
                     >
-                      <input
-                        type="checkbox"
-                        checked={!selectedCustomViewId}
-                        onChange={() => selectView(null)}
-                        className="size-4 shrink-0 rounded border-crm-border accent-blue-500"
-                      />
-                      <span className="min-w-0 flex-1 truncate text-sm font-medium text-crm-text">
-                        All Contracts
-                      </span>
-                      {!selectedCustomViewId ?
-                        <Check className="size-3.5 shrink-0 text-blue-500" aria-hidden />
-                      : null}
-                    </label>
+                      <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 px-1.5 py-1.5">
+                        <input
+                          type="checkbox"
+                          checked={!selectedCustomViewId}
+                          onChange={() => selectView(null)}
+                          className="size-4 shrink-0 rounded border-crm-border accent-blue-500"
+                        />
+                        <span className="min-w-0 flex-1 truncate text-sm font-medium text-crm-text">
+                          All Contracts
+                        </span>
+                        {!selectedCustomViewId ?
+                          <Check className="size-3.5 shrink-0 text-blue-500" aria-hidden />
+                        : null}
+                      </label>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleFavorite(CONTRACTS_ALL_VIEW_FAVORITE_ID);
+                        }}
+                        className="mr-1 cursor-pointer rounded-md p-1.5 text-crm-text-muted transition hover:bg-amber-500/10 hover:text-amber-500"
+                        aria-label={
+                          allContractsFavorite ?
+                            "Remove All Contracts from favorites"
+                          : "Bookmark All Contracts"
+                        }
+                        title={allContractsFavorite ? "Remove bookmark" : "Bookmark filter"}
+                      >
+                        <Star
+                          className={cn(
+                            "size-3.5",
+                            allContractsFavorite ?
+                              "fill-amber-400 text-amber-400"
+                            : "text-crm-text-muted",
+                          )}
+                        />
+                      </button>
+                    </div>
 
                     {listError ?
                       <p className="mb-2 rounded-lg border border-red-300/50 bg-red-50 px-2.5 py-2 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
@@ -389,68 +535,17 @@ export function CustomViewsDropdown({
                       <p className="px-3 py-6 text-center text-sm text-crm-text-muted">
                         No views match your search.
                       </p>
-                    : filtered.map((view) => {
-                        const showGroup = view.groupLabel && view.groupLabel !== lastGroup;
-                        if (view.groupLabel) lastGroup = view.groupLabel;
-                        const checked = selectedCustomViewId === view.customViewId;
-                        const deletable = canDeleteView(view);
-                        const isDeleting = deletingId === view.customViewId;
-                        return (
-                          <div key={view.apiName}>
-                            {showGroup ?
-                              <p className="crm-custom-view-group px-2">{view.groupLabel}</p>
-                            : null}
-                            <div
-                              className={cn(
-                                "crm-custom-view-option group flex items-center gap-1 rounded-lg px-1 py-0.5 transition",
-                                checked ?
-                                  "bg-blue-500/12 ring-1 ring-blue-500/30"
-                                : "hover:bg-zinc-100 dark:hover:bg-zinc-800/70",
-                              )}
-                            >
-                              <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 px-1.5 py-1.5">
-                                <input
-                                  type="checkbox"
-                                  checked={checked}
-                                  onChange={() =>
-                                    selectView(checked ? null : (view.customViewId ?? null))
-                                  }
-                                  className="size-4 shrink-0 rounded border-crm-border accent-blue-500"
-                                />
-                                <span className="min-w-0 flex-1 truncate text-sm text-crm-text">
-                                  {view.label}
-                                </span>
-                                {view.favorite ?
-                                  <Star
-                                    className="size-3.5 shrink-0 fill-amber-400 text-amber-400"
-                                    aria-label="Favorite"
-                                  />
-                                : null}
-                                {checked ?
-                                  <Check className="size-3.5 shrink-0 text-blue-500" aria-hidden />
-                                : null}
-                              </label>
-                              {deletable ?
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    void deleteView(view);
-                                  }}
-                                  disabled={Boolean(deletingId)}
-                                  className="mr-1 cursor-pointer rounded-md p-1.5 text-crm-text-muted opacity-70 transition hover:bg-red-500/10 hover:text-red-500 group-hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
-                                  aria-label={`Delete ${view.label}`}
-                                  title="Delete from Zoho CRM"
-                                >
-                                  {isDeleting ?
-                                    <Loader2 className="size-3.5 animate-spin" />
-                                  : <Trash2 className="size-3.5" />}
-                                </button>
-                              : null}
-                            </div>
-                          </div>
-                        );
-                      })
+                    : <>
+                        {favoriteViews.length > 0 ?
+                          <>
+                            <p className="crm-custom-view-group px-2">Favorites</p>
+                            {favoriteViews.map((view) => renderViewRow(view, false))}
+                          </>
+                        : null}
+                        {otherViewRows.map(({ view, showGroup }) =>
+                          renderViewRow(view, showGroup),
+                        )}
+                      </>
                     }
                   </>
                 }
