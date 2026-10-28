@@ -57,6 +57,7 @@ import {
   filterStaticVendorRecords,
 } from "@/lib/vendors/static";
 import { CustomViewsDropdown } from "@/components/contracts/CustomViewsDropdown";
+import { VendorListSelectionActions } from "@/components/vendors/VendorListSelectionActions";
 import { getVendorZohoRecordUrl } from "@/lib/zoho/crmRecordUrls";
 
 const SELECT_COL_WIDTH = 68;
@@ -313,6 +314,7 @@ export default function VendorsTable({
   const [offlineDemo, setOfflineDemo] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [columnSort, setColumnSort] = useState<ColumnSortState | null>(null);
+  const [listReloadKey, setListReloadKey] = useState(0);
 
   const listQueryKey = useMemo(
     () =>
@@ -497,6 +499,7 @@ export default function VendorsTable({
     onFilteredTotalChange,
     onVendorsLoadingChange,
     onOfflineDemoChange,
+    listReloadKey,
   ]);
 
   const applyColumns = useCallback(
@@ -724,6 +727,19 @@ export default function VendorsTable({
             : null}
             <div className="min-w-0 flex flex-1 flex-wrap items-center gap-x-2 gap-y-1.5 sm:gap-x-3">
               <h1 className="page-heading truncate text-base sm:text-lg">Vendors</h1>
+              {selectedCount > 0 ?
+                <VendorListSelectionActions
+                  selectedRecordIds={Array.from(selectedIds)}
+                  onDeleted={(deletedIds) => {
+                    setSelectedIds((prev) => {
+                      const next = new Set(prev);
+                      for (const id of deletedIds) next.delete(id);
+                      return next;
+                    });
+                    setListReloadKey((key) => key + 1);
+                  }}
+                />
+              : null}
               {onApplyCustomView ?
                 <CustomViewsDropdown
                   zohoModule="Vendors"

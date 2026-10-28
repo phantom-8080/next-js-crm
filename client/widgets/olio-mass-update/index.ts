@@ -18,4 +18,10 @@ export type {
   OlioMassUpdateResult,
 } from "./types";
 
+export {
+  isMappedFileField,
+  moduleUpdateHeading,
+  supportsSubformEditor,
+} from "./constants";
+
 export { OlioMassUpdateWidget } from "./ui/OlioMassUpdateWidget";

@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import type { ContractFilterFieldMeta } from "@/lib/contracts/filterTypes";
 import { getOperatorsForDataType } from "@/lib/contracts/filterMeta";
 import { CONTRACTS_ALL_VIEW_FAVORITE_ID } from "@/lib/contracts/filterPersistence";
+import { VENDORS_ALL_VIEW_FAVORITE_ID } from "@/lib/vendors/filterPersistence";
 import { useFavoriteCustomViews } from "@/hooks/contracts/useFavoriteCustomViews";
 
 type CustomViewsDropdownProps = {
@@ -61,6 +62,13 @@ export function CustomViewsDropdown({
   const rootRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const { isFavorite, toggleFavorite, mergeZohoFavorites } = useFavoriteCustomViews();
+
+  const allViewLabel =
+    zohoModule === "Vendors" ? "All Vendors" : "All Contracts";
+  const allViewFavoriteId =
+    zohoModule === "Vendors"
+      ? VENDORS_ALL_VIEW_FAVORITE_ID
+      : CONTRACTS_ALL_VIEW_FAVORITE_ID;
 
   const viewsPath =
     zohoModule === "Contracts" ? "/api/contracts/custom-views"
@@ -174,11 +182,11 @@ export function CustomViewsDropdown({
   }, [open, mode]);
 
   const selectedLabel = useMemo(() => {
-    if (!selectedCustomViewId) return "All Contracts";
+    if (!selectedCustomViewId) return allViewLabel;
     return (
       views.find((v) => v.customViewId === selectedCustomViewId)?.label ?? "Custom view"
     );
-  }, [selectedCustomViewId, views]);
+  }, [allViewLabel, selectedCustomViewId, views]);
 
   const viewIsFavorite = useCallback(
     (view: ContractFilterFieldMeta) => {
@@ -215,7 +223,7 @@ export function CustomViewsDropdown({
     return { favoriteViews: favorites, otherViewRows: rows };
   }, [filtered, viewIsFavorite]);
 
-  const allContractsFavorite = isFavorite(CONTRACTS_ALL_VIEW_FAVORITE_ID);
+  const allViewFavorite = isFavorite(allViewFavoriteId);
 
   const selectedField = useMemo(
     () => filterFields.find((f) => f.apiName === condition.apiName),
@@ -494,7 +502,7 @@ export function CustomViewsDropdown({
                           className="size-4 shrink-0 rounded border-crm-border accent-blue-500"
                         />
                         <span className="min-w-0 flex-1 truncate text-sm font-medium text-crm-text">
-                          All Contracts
+                          {allViewLabel}
                         </span>
                         {!selectedCustomViewId ?
                           <Check className="size-3.5 shrink-0 text-blue-500" aria-hidden />
@@ -504,20 +512,20 @@ export function CustomViewsDropdown({
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          toggleFavorite(CONTRACTS_ALL_VIEW_FAVORITE_ID);
+                          toggleFavorite(allViewFavoriteId);
                         }}
                         className="mr-1 cursor-pointer rounded-md p-1.5 text-crm-text-muted transition hover:bg-amber-500/10 hover:text-amber-500"
                         aria-label={
-                          allContractsFavorite ?
-                            "Remove All Contracts from favorites"
-                          : "Bookmark All Contracts"
+                          allViewFavorite
+                            ? `Remove ${allViewLabel} from favorites`
+                            : `Bookmark ${allViewLabel}`
                         }
-                        title={allContractsFavorite ? "Remove bookmark" : "Bookmark filter"}
+                        title={allViewFavorite ? "Remove bookmark" : "Bookmark filter"}
                       >
                         <Star
                           className={cn(
                             "size-3.5",
-                            allContractsFavorite ?
+                            allViewFavorite ?
                               "fill-amber-400 text-amber-400"
                             : "text-crm-text-muted",
                           )}

@@ -10,6 +10,11 @@ import {
 import { Loader2, Plus, Search, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import {
+  isMappedFileField,
+  moduleUpdateHeading,
+  supportsSubformEditor,
+} from "@/widgets/olio-mass-update/constants";
 import { OLIO_MASS_UPDATE_WIDGET_NAME } from "@/widgets/olio-mass-update";
 import type {
   MassUpdateFieldOption,
@@ -19,11 +24,6 @@ import type {
   OlioMassUpdateValue,
 } from "@/widgets/olio-mass-update/types";
 import type { WidgetOpenContext } from "@/widgets/types";
-
-const CONTRACT_FILE_FIELDS = new Set([
-  "PO_Attachment",
-  "Billing_Attachments_Upload",
-]);
 
 type OlioMassUpdateWidgetProps = WidgetOpenContext & {
   open: boolean;
@@ -132,8 +132,9 @@ export function OlioMassUpdateWidget({
   );
   const fieldType = normalizeType(selectedField?.dataType ?? "text");
   const isFileField =
-    fieldType === "fileupload" ||
-    (module === "Contracts" && CONTRACT_FILE_FIELDS.has(fieldApiName));
+    fieldType === "fileupload" || isMappedFileField(module, fieldApiName);
+  const isSubformField =
+    fieldType === "subform" && supportsSubformEditor(module);
   const isMultiLookup =
     fieldType === "multiselectlookup" || fieldType === "multiuserlookup";
   const isLookup =
@@ -145,7 +146,7 @@ export function OlioMassUpdateWidget({
     isLookup &&
     (fieldType === "userlookup" || lookupQuery.trim().length >= 5);
   const canFetchService =
-    fieldType === "subform" && serviceQuery.trim().length >= 5;
+    isSubformField && serviceQuery.trim().length >= 5;
   const visibleLookupOptions = canFetchLookup ? lookupOptions : [];
   const visibleServiceOptions = canFetchService ? serviceOptions : [];
 
@@ -359,7 +360,11 @@ export function OlioMassUpdateWidget({
       return;
     }
     if (selectedRecordIds.length === 0) {
-      setError("Select at least one contract to update.");
+      setError("Select at least one record to update.");
+      return;
+    }
+    if (fieldType === "subform" && !supportsSubformEditor(module)) {
+      setError("Subform mass update is only supported for Contracts and Deals.");
       return;
     }
     if (isFileField && !selectedFile) {
@@ -373,7 +378,7 @@ export function OlioMassUpdateWidget({
         (!Array.isArray(newValue) && !String(newValue).trim()))
     ) {
       setError(
-        fieldType === "subform"
+        isSubformField
           ? "Add at least one subform row."
           : "Please enter a new value.",
       );
@@ -694,7 +699,14 @@ export function OlioMassUpdateWidget({
         />
       );
     }
-    if (fieldType === "subform") return renderSubformInput();
+    if (isSubformField) return renderSubformInput();
+    if (fieldType === "subform") {
+      return (
+        <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-200">
+          Subform editing is only available on Contracts and Deals.
+        </p>
+      );
+    }
     if (isLookup) return renderLookupInput();
     if (fieldType === "boolean") {
       return (
@@ -827,7 +839,7 @@ export function OlioMassUpdateWidget({
             className="mx-auto w-full max-w-[29rem] rounded-2xl border border-crm-border bg-crm-panel px-5 py-6 shadow-md shadow-zinc-950/8 sm:px-7 sm:py-7 dark:shadow-black/30"
           >
             <h3 className="section-heading mb-1 text-center text-base sm:text-lg">
-              {module === "Contracts" ? "Contracts Update" : `${module} Update`}
+              {moduleUpdateHeading(module)}
             </h3>
             <p className="mb-6 text-center text-xs text-crm-text-muted">
               {selectedRecordIds.length.toLocaleString("en-US")} record
@@ -899,7 +911,7 @@ export function OlioMassUpdateWidget({
                   >
                     {isFileField
                       ? "Upload File"
-                      : fieldType === "subform"
+                      : isSubformField
                         ? "Subform Value"
                         : "New Value"}
                   </label>

@@ -7,6 +7,12 @@ import {
   isZohoTokenExpiredResponse,
   ZOHO_CRM_BASE,
 } from "@/lib/zoho";
+import {
+  isMappedFileField,
+  moduleNameField,
+  MODULE_FILE_FIELD_MAPS,
+  supportsSubformEditor,
+} from "@/widgets/olio-mass-update/constants";
 import type {
   MassUpdateFieldOption,
   MassUpdateSubformRow,
@@ -17,42 +23,6 @@ import type {
 } from "@/widgets/olio-mass-update/types";
 
 const MODULE_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_]*$/;
-
-const MODULE_FILE_FIELD_MAPS: Record<string, Record<string, string>> = {
-  Contracts: {
-    PO_Attachment: "PO_URL",
-    Billing_Attachments_Upload: "Billing_Attachment_URL",
-  },
-  Accounts: { Site_Map_Attachment: "Site_Link" },
-  Bids: {
-    Bid_Docs_Upload: "URL",
-    Supporting_Docs_Upload: "Supporting_Docs_URL",
-  },
-  Deals: {
-    Vendor_Specific_Attachments: "Vendor_Specific_Attachments_URL",
-    Client_PO_Attachment: "Client_PO_URL",
-    Site_Map: "SiteMap_URL",
-    Billing_Attachment_Upload: "Billing_Attachment_URL",
-  },
-  Vendors: {
-    Bank_ACH_Team_Upload: "Bank_ACH",
-    Certificate_of_Insurance_Team_upload: "Certificate_of_Insurance",
-    W9: "W9_URL",
-    Workers_Comp_Team_Upload: "Workers_Compensation",
-  },
-  ServiceCompletions: {
-    Form_1_File_Upload: "Form_1_Url",
-    Form_2_File_Upload: "Form_2_Url",
-    Form_3_File_Upload: "Form_3_Url",
-    Upload_Files: "Uploaded_File_URL",
-  },
-  Vendor_Invoices: {
-    Document_1: "Document_1_URL",
-    Document_2: "Document_2_URL",
-    Document_3: "Document_3_URL",
-    Invoice_Upload: "InvoiceUrl",
-  },
-};
 
 type RawZohoField = {
   api_name?: string;
@@ -420,14 +390,21 @@ export async function updateOlioMassRecords(
   }
 
   const fieldType = normalizeDataType(selectedField.dataType);
-  const isMappedFileField = Boolean(
-    MODULE_FILE_FIELD_MAPS[moduleName]?.[fieldApiName],
-  );
-  const isFile = fieldType === "fileupload" || isMappedFileField;
+  const mappedFile = isMappedFileField(moduleName, fieldApiName);
+  const isFile = fieldType === "fileupload" || mappedFile;
   if (isFile && !payload.file) {
     return { ok: false, message: "Please select a file to upload." };
   }
-  if (!isFile && isEmptyValue(payload.newValue)) {
+  if (
+    fieldType === "subform" &&
+    !supportsSubformEditor(moduleName)
+  ) {
+    return {
+      ok: false,
+      message: "Subform mass update is only supported for Contracts and Deals.",
+    };
+  }
+  if (!isFile && fieldType !== "boolean" && isEmptyValue(payload.newValue)) {
     return { ok: false, message: "Please enter a new value." };
   }
 
@@ -440,16 +417,17 @@ export async function updateOlioMassRecords(
   }
 
   const currentDate = payload.currentDate?.trim() || localDateTimeFallback();
+  const nameField = moduleNameField(moduleName);
+  const urlCompanionField = MODULE_FILE_FIELD_MAPS[moduleName]?.[fieldApiName];
   const errors: OlioMassUpdateRecordError[] = [];
   let successCount = 0;
 
   for (const id of ids) {
     try {
-      const fieldsToFetch = ["Name", fieldApiName];
+      const fieldsToFetch = [nameField, fieldApiName];
       if (moduleName === "Contracts") {
         fieldsToFetch.push("MassWidgetUpdate", "MassWidgetUpdateCount");
       }
-      if (fieldType === "subform") fieldsToFetch.push(fieldApiName);
       const record = await fetchRecord(moduleName, id, fieldsToFetch);
       const previousCount = Number.parseInt(
         String(record.MassWidgetUpdateCount ?? "0"),
@@ -485,21 +463,26 @@ export async function updateOlioMassRecords(
         );
       } else if (isFile && payload.file) {
         const fileId = await uploadFileToZoho(payload.file);
-        const existingFiles = Array.isArray(record[fieldApiName])
-          ? record[fieldApiName]
-          : [];
-        updateData[fieldApiName] = [
-          ...existingFiles
-            .map((file) => {
-              const item = file as Record<string, unknown>;
-              const attachmentId = item.attachment_Id ?? item.attachment_id;
-              return attachmentId
-                ? { attachment_id: String(attachmentId), _delete: null }
-                : null;
-            })
-            .filter(Boolean),
-          { file_id: fileId },
-        ];
+        // Bid docs historically stored the uploaded file id on the companion URL field.
+        if (fieldApiName === "Bid_Docs_Upload" && urlCompanionField) {
+          updateData[urlCompanionField] = fileId;
+        } else {
+          const existingFiles = Array.isArray(record[fieldApiName])
+            ? record[fieldApiName]
+            : [];
+          updateData[fieldApiName] = [
+            ...existingFiles
+              .map((file) => {
+                const item = file as Record<string, unknown>;
+                const attachmentId = item.attachment_Id ?? item.attachment_id;
+                return attachmentId
+                  ? { attachment_id: String(attachmentId), _delete: null }
+                  : null;
+              })
+              .filter(Boolean),
+            { file_id: fileId },
+          ];
+        }
       } else {
         updateData[fieldApiName] = valueForZoho(
           fieldType,
@@ -508,7 +491,7 @@ export async function updateOlioMassRecords(
       }
 
       await updateRecord(moduleName, updateData);
-      if (moduleName === "Contracts") {
+      try {
         await notifyCatalyst({
           entityId: id,
           letTeamKnow: Boolean(payload.notifyTeam),
@@ -516,8 +499,15 @@ export async function updateOlioMassRecords(
           fieldValue: payload.newValue,
           currentDate,
           sortKey: `data-${updatedCount}`,
-          recordName: String(record.Name ?? "Unknown"),
+          recordName: String(
+            record[nameField] ?? record.Name ?? "Unknown",
+          ),
         });
+      } catch (notifyError) {
+        console.warn(
+          `[olio-mass-update] Catalyst notify failed for ${id}:`,
+          notifyError,
+        );
       }
       successCount += 1;
     } catch (error) {
