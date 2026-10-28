@@ -945,7 +945,10 @@ export default function SideBar({
   onFocusFilterFieldHandled,
 }: SideBarProps) {
   const applyClosePending = useRef(false);
-  const persistToZohoCrm = zohoModule === "Contracts";
+  const persistToZohoCrm = zohoModule === "Contracts" || zohoModule === "Vendors";
+  const customViewsApiUrl =
+    zohoModule === "Contracts" ? "/api/contracts/custom-views"
+    : `/api/${encodeURIComponent(zohoModule.toLowerCase())}/custom-views`;
   const [sections, setSections] = useState<ContractFilterSection[]>([]);
   const [fieldMeta, setFieldMeta] = useState<ContractFilterFieldMeta[]>([]);
   const [metaLoading, setMetaLoading] = useState(true);
@@ -1564,7 +1567,7 @@ export default function SideBar({
         );
       }
 
-      const res = await fetch("/api/contracts/custom-views", {
+      const res = await fetch(customViewsApiUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

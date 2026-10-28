@@ -6,6 +6,7 @@ import {
   ArrowRight,
   Database,
   FileText,
+  Store,
   type LucideIcon,
 } from "lucide-react";
 import { ShimmerBar } from "@/components/shared/LoadingShimmer";
@@ -33,6 +34,14 @@ const MODULES: ModuleCard[] = [
     icon: FileText,
     useLiveRecordCount: true,
     liveCountPath: "/api/contracts?page=1",
+  },
+  {
+    title: "Vendors",
+    description: "Browse and manage vendor records.",
+    href: "/vendors",
+    icon: Store,
+    useLiveRecordCount: true,
+    liveCountPath: "/api/vendors?page=1",
   },
 ];
 
@@ -179,7 +188,7 @@ export default function ModuleHomeGrid() {
             CRM Workspace
           </h1>
           <p className="mt-1 text-sm text-crm-text-muted sm:text-[0.95rem]">
-            Open Contracts to browse and manage your records.
+            Open a module to browse and manage your CRM records.
           </p>
         </div>
         <ThemeToggle showLabel className="shrink-0 self-start sm:mt-0.5" />
