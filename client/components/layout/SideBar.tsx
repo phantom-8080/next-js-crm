@@ -383,6 +383,8 @@ function FilterSectionGroup({
   manualDrafts,
   relatedDrafts: _relatedDrafts,
   zohoModule,
+  selectedCustomViewId,
+  onSelectCustomView,
   onToggleFieldValue,
   onManualChange,
   onRelatedChange,
@@ -395,6 +397,8 @@ function FilterSectionGroup({
   manualDrafts: Map<string, ManualFilterDraft>;
   relatedDrafts: Map<string, RelatedModuleDraft>;
   zohoModule: string;
+  selectedCustomViewId: string | null;
+  onSelectCustomView: (customViewId: string | null) => void;
   onToggleFieldValue: (apiName: string, value: string) => void;
   onManualChange: (apiName: string, field: ContractFilterFieldMeta, patch: Partial<ManualFilterDraft>) => void;
   onRelatedChange: (
@@ -405,17 +409,20 @@ function FilterSectionGroup({
   getRelatedDraft: (apiName: string) => RelatedModuleDraft;
 }) {
   const q = filterSearch.trim().toLowerCase();
-  const [open, setOpen] = useState(section.id === "fields" || section.id === "related_modules");
+  const [open, setOpen] = useState(
+    section.id === "system_defined" ||
+      section.id === "fields" ||
+      section.id === "related_modules",
+  );
 
   const visibleFields = useMemo(() => {
     if (!q) return section.fields;
     return section.fields.filter(
       (f) =>
-        f.dataType !== "custom_view" &&
-        (f.label.toLowerCase().includes(q) ||
-          f.apiName.toLowerCase().includes(q) ||
-          (f.groupLabel?.toLowerCase().includes(q) ?? false) ||
-          f.options.some((o) => o.label.toLowerCase().includes(q))),
+        f.label.toLowerCase().includes(q) ||
+        f.apiName.toLowerCase().includes(q) ||
+        (f.groupLabel?.toLowerCase().includes(q) ?? false) ||
+        f.options.some((o) => o.label.toLowerCase().includes(q)),
     );
   }, [section.fields, q]);
 
@@ -456,7 +463,25 @@ function FilterSectionGroup({
                     {field.groupLabel}
                   </p>
                 : null}
-                {field.dataType === "related_module" ?
+                {field.dataType === "custom_view" ?
+                  <label className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 transition hover:bg-zinc-100 dark:hover:bg-zinc-800/70">
+                    <input
+                      type="radio"
+                      name={`system-defined-filter-${zohoModule}`}
+                      checked={
+                        Boolean(field.customViewId) &&
+                        selectedCustomViewId === field.customViewId
+                      }
+                      onChange={() =>
+                        onSelectCustomView(field.customViewId ?? null)
+                      }
+                      className="h-4 w-4 shrink-0 border-crm-border accent-blue-500"
+                    />
+                    <span className="min-w-0 truncate text-sm text-crm-text">
+                      {field.label}
+                    </span>
+                  </label>
+                : field.dataType === "related_module" ?
                   <RelatedModuleFilterSection
                     field={field}
                     draft={getRelatedDraft(field.apiName)}
@@ -1054,10 +1079,11 @@ export default function SideBar({
 
   const displaySections = useMemo(() => {
     const titles: Record<string, string> = {
+      system_defined: "System Defined Filters",
       fields: "Filter By Fields",
-      subforms: "Filter By Subforms",
       related_modules: "Filter By Related Modules",
     };
+    const order = ["system_defined", "fields", "related_modules"] as const;
 
     const sourceSections =
       sections.length > 0 ?
@@ -1066,8 +1092,9 @@ export default function SideBar({
           if (fieldMeta.length === 0) return [] as ContractFilterSection[];
           const bySection = new Map<string, ContractFilterFieldMeta[]>();
           for (const field of fieldMeta) {
-            if (field.dataType === "custom_view") continue;
-            const id = field.section ?? "fields";
+            // Fold legacy "subforms" into fields for the 3-section sidebar.
+            const id =
+              field.section === "subforms" ? "fields" : (field.section ?? "fields");
             const list = bySection.get(id) ?? [];
             list.push(field);
             bySection.set(id, list);
@@ -1079,15 +1106,31 @@ export default function SideBar({
           }));
         })();
 
-    // Custom views live in the toolbar dropdown — keep only field filters here.
-    return sourceSections
-      .filter((section) => section.id !== "system_defined")
-      .map((section) => ({
-        ...section,
-        title: titles[section.id] ?? section.title,
-        fields: section.fields.filter((f) => f.dataType !== "custom_view"),
-      }))
-      .filter((section) => section.fields.length > 0);
+    const byId = new Map(sourceSections.map((section) => [section.id, section]));
+    // Merge any leftover subforms section into fields.
+    const subforms = byId.get("subforms");
+    if (subforms?.fields.length) {
+      const fieldsSection = byId.get("fields");
+      byId.set("fields", {
+        id: "fields",
+        title: titles.fields,
+        fields: [...(fieldsSection?.fields ?? []), ...subforms.fields],
+      });
+      byId.delete("subforms");
+    }
+
+    return order
+      .map((id) => {
+        const section = byId.get(id);
+        if (!section) return null;
+        return {
+          ...section,
+          title: titles[id] ?? section.title,
+        };
+      })
+      .filter((section): section is ContractFilterSection =>
+        Boolean(section && section.fields.length > 0),
+      );
   }, [fieldMeta, sections]);
 
   const hasVisibleSections = useMemo(() => {
@@ -1478,12 +1521,20 @@ export default function SideBar({
     if (applyLoading) return;
 
     const zohoSelections = await buildZohoSelectionsFromState(fieldSelections, manualDrafts);
+    // Field criteria replace cvid; otherwise apply the selected System Defined view.
+    const nextCustomViewId = hasFieldValueFilters ? null : selectedCustomViewId;
 
     applyClosePending.current = true;
-    setSelectedCustomViewId(null);
-    // Field filters replace the toolbar custom view (Zoho list is cvid OR criteria).
+    if (hasFieldValueFilters) {
+      setSelectedCustomViewId(null);
+    }
     onApplyFilters(
-      buildApplyPayloadFromState(fieldSelections, manualDrafts, null, zohoSelections),
+      buildApplyPayloadFromState(
+        fieldSelections,
+        manualDrafts,
+        nextCustomViewId,
+        zohoSelections,
+      ),
     );
   }
 
@@ -1677,10 +1728,12 @@ export default function SideBar({
   }
 
   const hasFieldValueFilters = hasCheckboxFilters || hasManualFilters || hasRelatedFilters;
-  /** Apply only for sidebar field filters — custom views apply immediately via the dropdown. */
-  const canApplyFilters = hasFieldValueFilters;
-  /** Save only when at least one field has a concrete value. */
-  const canSaveCurrent = hasFieldValueFilters;
+  const hasPendingCustomView =
+    selectedCustomViewId != null && selectedCustomViewId !== customViewId;
+  /** Apply for field filters or a newly chosen System Defined (custom) view. */
+  const canApplyFilters = hasFieldValueFilters || hasPendingCustomView;
+  /** Save when field filters or a system-defined view selection is ready. */
+  const canSaveCurrent = hasFieldValueFilters || Boolean(selectedCustomViewId);
 
   useEffect(() => {
     if (saveOpen && !canSaveCurrent) {
@@ -1831,6 +1884,14 @@ export default function SideBar({
                   manualDrafts={manualDrafts}
                   relatedDrafts={relatedDrafts}
                   zohoModule={zohoModule}
+                  selectedCustomViewId={selectedCustomViewId}
+                  onSelectCustomView={(nextId) => {
+                    setSelectedCustomViewId(nextId);
+                    // Zoho list is cvid OR field criteria — clear field drafts when picking a view.
+                    setFieldSelections(new Map());
+                    setManualDrafts(new Map());
+                    setRelatedDrafts(new Map());
+                  }}
                   onToggleFieldValue={toggleFieldValue}
                   onManualChange={updateManualDraft}
                   onRelatedChange={updateRelatedDraft}

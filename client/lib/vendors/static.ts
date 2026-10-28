@@ -79,7 +79,7 @@ const staticSystemViews: ContractFilterFieldMeta[] = [
 export const VENDORS_STATIC_ALL_VIEW_ID = "vendors-all";
 
 export const VENDORS_STATIC_FILTER_SECTIONS: ContractFilterSection[] = [
-  { id: "system_defined", title: "Custom Views", fields: staticSystemViews },
+  { id: "system_defined", title: "System Defined Filters", fields: staticSystemViews },
   { id: "fields", title: "Filter By Fields", fields: staticFieldFilters },
 ];
 

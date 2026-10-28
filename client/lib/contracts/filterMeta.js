@@ -478,15 +478,14 @@ const EXCLUDED_RELATED_LIST_TYPES = new Set([
 export const FILTER_SECTION_ORDER = [
   "system_defined",
   "fields",
-  "subforms",
   "related_modules",
 ];
 
 /** @type {Record<import("@/lib/contracts/filterTypes").ContractFilterSectionId, string>} */
 export const FILTER_SECTION_TITLES = {
-  system_defined: "Custom Views",
+  system_defined: "System Defined Filters",
   fields: "Filter By Fields",
-  subforms: "Filter By Subforms",
+  subforms: "Filter By Fields",
   related_modules: "Filter By Related Modules",
 };
 
@@ -943,15 +942,18 @@ function discoverSubformModules(moduleFields) {
  * @param {import("@/lib/contracts/filterTypes").ContractFilterFieldMeta[]} relatedFields
  */
 function assembleFilterMetaSections(systemFields, moduleFields, subformFields, relatedFields) {
-  const allFields = [...systemFields, ...moduleFields, ...subformFields, ...relatedFields];
+  // Subform fields fold into "Filter By Fields" — sidebar uses 3 sections only.
+  const fieldSectionFields = [...moduleFields, ...subformFields].map((field) =>
+    field.section === "subforms" ? { ...field, section: /** @type {const} */ ("fields") } : field,
+  );
+  const allFields = [...systemFields, ...fieldSectionFields, ...relatedFields];
   /** @type {import("@/lib/contracts/filterTypes").ContractFilterSection[]} */
   const sections = FILTER_SECTION_ORDER.map((id) => ({
     id,
     title: FILTER_SECTION_TITLES[id],
     fields:
       id === "system_defined" ? systemFields
-      : id === "fields" ? moduleFields
-      : id === "subforms" ? subformFields
+      : id === "fields" ? fieldSectionFields
       : relatedFields,
   })).filter((section) => section.fields.length > 0);
 
@@ -1028,9 +1030,14 @@ async function resolveContractsFilterMetaFallback() {
   }
 }
 
-/** Zoho Custom Views for filter metadata (live Zoho fetch). */
+/**
+ * Zoho system-defined custom views for the sidebar "System Defined Filters" section.
+ * Keeps only `system_defined` views so the list matches CRM’s system views,
+ * not every user/shared/public custom view (those stay in the toolbar dropdown).
+ */
 async function loadSystemDefinedFilters(module) {
-  return fetchZohoCustomViews(module);
+  const views = await fetchZohoCustomViews(module);
+  return views.filter((view) => view.systemDefined === true);
 }
 
 /** @returns {Promise<{ sections: import("@/lib/contracts/filterTypes").ContractFilterSection[]; fields: import("@/lib/contracts/filterTypes").ContractFilterFieldMeta[]; source: "zoho" | "fallback" }>} */
